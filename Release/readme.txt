@@ -33,7 +33,7 @@ Operation flags control the operation to perform on the files:
 Configuration flags are used to redefine/change settings:
 - /noerrors forces application to continue with the next file even if a serious problem (such as a lack of internet connectivity) was encountered with this one.
 - /errors or /-noerrors disables /noerrors if it have been enabled through configuration file.
-- /autoedit[existing] instructs anidb tool to automatically retry the operation in edit mode if MYLIST ADD request returned 311 FILE ALREADY IN MYLIST. Works only when edit mode is disabled.
+- /autoedit[existing] instructs anidb tool to automatically retry the operation in edit mode if MYLIST ADD request returned 310 FILE ALREADY IN MYLIST. Works only when edit mode is disabled.
 - /-autoedit[existing] disables /autoeditexisting if it have been enabled through configuration file.
 
 
@@ -65,7 +65,7 @@ You can scroll command window up to determine the causes of errors.
 
 Editing versus adding
 ========================
-By default, with EditMode and AutoEditExisting disabled, anidb tool will issue a MYLIST ADD command for every file it parses. This command adds a file to MYLIST only if it wasn't there before. If the file have already been registered before, then the request will fail with error 311 FILE ALREADY IN MYLIST and file data will not be changed.
+By default, with EditMode and AutoEditExisting disabled, anidb tool will issue a MYLIST ADD command for every file it parses. This command adds a file to MYLIST only if it wasn't there before. If the file have already been registered before, then the request will fail with error 310 FILE ALREADY IN MYLIST and file data will not be changed.
 Anidb tool considers this to be a successful result because in most cases this is what one wants. If you just want to register all your files in anidb, then certainly knowing that the file is already registered should be enough for you.
 
 If, on the other hand, you want to change the file data, for example, to mark the file as watched, you'll need to issue a MYLIST EDIT request. For that, specify /edit in the command-line or set EditMode in the configuration file to True. According to documentation, MYLIST EDIT changes the data if the file is already in MYLIST or adds the file if it wasn't there yet.
