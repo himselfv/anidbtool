@@ -10,6 +10,22 @@ uses
   ed2k in '..\..\#Units\Crypt\Hashes\ed2k.pas',
   FileInfo in 'FileInfo.pas';
 
+
+type
+  TAnidbOptions = record
+    FileState: integer;
+    Watched: boolean;
+    EditMode: boolean;
+  end;
+  PAnidbOptions = ^TAnidbOptions;
+
+  TProgramOptions = record
+    ParseSubdirs: boolean;
+    DontStopOnErrors: boolean;
+    AutoEditExisting: boolean;
+  end;
+  PProgramOptions = ^TProgramOptions;
+
 function Md4ToString(md4: MD4Digest): string;
 var i: integer;
 begin
@@ -24,6 +40,7 @@ begin
   writeln('Commands: ');
   writeln('  hash <filename> [/s]');
   writeln('  mylistadd <filename> [/s] [/state <state>] [/watched] [/edit] [/noerrors]');
+  writeln('   [/autoedit]');
   writeln('');
   writeln('Where:');
   writeln('  <filename> is file name, mask or directory name');
@@ -31,7 +48,8 @@ begin
   writeln('  /state <state> sets file state (unknown/hdd/cd/deleted)');
   writeln('  /watched marks file as watched');
   writeln('  /edit forces edit mode');
-  writeln('  /noerrors allows to skip errors and continue adding files');    
+  writeln('  /noerrors allows to skip errors and continue adding files');
+  writeln('  /autoedit instructs to edit the file if it''s already in mylist');
 end;
 
 var
@@ -214,7 +232,7 @@ end;
 
 //Returns TRUE if the file was successfully added OR it was already in mylist.
 //Returns FALSE otherwise
-function Exec_Mylistadd(fname: string; FileState: integer; FileWatched: boolean; EditMode: boolean): boolean;
+function Exec_Mylistadd(fname: string; AnidbOptions: PAnidbOptions; ProgramOptions: PProgramOptions): boolean;
 var
   f_size: int64;
   f_ed2k: MD4Digest;
@@ -232,7 +250,8 @@ begin
  //softly support it from upper levels too.
   HashFile(fname, f_size, f_ed2k);
 
-  res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), FileState, FileWatched, EditMode);
+  res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
+    AnidbOptions.Watched, AnidbOptions.EditMode);
   if (res.code=INVALID_SESSION)
   or (res.code=LOGIN_FIRST)
   or (res.code=LOGIN_FAILED) then begin
@@ -242,14 +261,26 @@ begin
     writeln('Logged in');
 
    //Retry
-    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), FileState, FileWatched, EditMode);
+    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
+      AnidbOptions.Watched, AnidbOptions.EditMode);
   end;
+
+
+ //If we're in EditMode, no need to try editing again
+  if (not AnidbOptions.EditMode) and (ProgramOptions.AutoEditExisting)
+  and (res.code = FILE_ALREADY_IN_MYLIST) then begin
+
+   //Trying again, editing this time
+    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
+      AnidbOptions.Watched, {EditMode=}true);
+  end;
+  
 
   writeln(res.ToString);
 
   Result := (res.code = MYLIST_ENTRY_ADDED)
-    or (res.code = FILE_ALREADY_IN_MYLIST)
-    or (res.code = MYLIST_ENTRY_EDITED);
+    or ((res.code = FILE_ALREADY_IN_MYLIST) and not ProgramOptions.AutoEditExisting) //if we AutoEditExisting, this error should not occur
+    or (res.code = MYLIST_ENTRY_EDITED);  
 end;
 
 {$REGION 'File enumeration'}
@@ -359,17 +390,7 @@ begin
   end;
 end;
 
-type
-  TAnidbOptions = record
-    FileState: integer;
-    Watched: boolean;
-    EditMode: boolean;
-  end;
 
-  TProgramOptions = record
-    ParseSubdirs: boolean;
-    DontStopOnErrors: boolean;
-  end;
 
 procedure Execute();
 var i: integer;
@@ -401,6 +422,7 @@ begin
  //Read some default options from config
   TryStrToBool(Config.Values['EditMode'], AnidbOptions.EditMode);
   TryStrToBool(Config.Values['DontStopOnErrors'], ProgramOptions.DontStopOnErrors);
+  TryStrToBool(Config.Values['AutoEditExisting'], ProgramOptions.AutoEditExisting);
 
  //Parse main command
   if ParamCount < 1 then begin
@@ -453,14 +475,33 @@ begin
       AnidbOptions.EditMode := true;
     end else
 
+   //Disable EditMode (for mylistadd only)
+    if SameText(param, '/-edit')
+    or SameText(param, '/-editmode') then begin
+      AnidbOptions.EditMode := false;
+    end else
+
    //DontStopOnErrors (for mylistadd only)
     if SameText(param, '/noerrors') then begin
       ProgramOptions.DontStopOnErrors := true;
     end else
 
-   //StopOnErrors (for mylistadd only)
-    if SameText(param, '/errors') then begin
+   //Disable DontStopOnErrors (for mylistadd only)
+    if SameText(param, '/-noerrors')
+    or SameText(param, '/errors') then begin
       ProgramOptions.DontStopOnErrors := false;
+    end else
+
+   //AutoEditExisting (for mylistadd only)
+    if SameText(param, '/autoedit')
+    or SameText(param, '/autoeditexisting') then begin
+      ProgramOptions.AutoEditExisting := true;
+    end else
+
+   //Disable AutoEditExisting (for mylistadd only)
+    if SameText(param, '/-autoedit')
+    or SameText(param, '/-autoeditexisting') then begin
+      ProgramOptions.AutoEditExisting := false;
     end else
 
    //Unknown option
@@ -516,9 +557,7 @@ begin
    //Process files
     SetLength(failed_files, 0);
     for file_name in files do try
-
-      if not Exec_MyListAdd(file_name, AnidbOptions.FileState,
-        AnidbOptions.Watched, AnidbOptions.EditMode) then
+      if not Exec_MyListAdd(file_name, @AnidbOptions, @ProgramOptions) then
         AddFile(failed_files, file_name);
       writeln('');
 
