@@ -141,6 +141,7 @@ You can rename files as much as you want. Anidb tool identifies files by their h
 
 Version Info
 ===================
+25.10.2009 - Added file cache, hash cache. Improved network stability.
 24.10.2009 - Added AutoEditExisting.
 27.12.2008 - Fixed another stupid error with int32 used for file size calculations. Now files of more than 2.xx GB in size should at last be hashed correctly.
 30.11.2008 - Fixed a stupid error with int32 used for file size calculations. Now files of more than 2.xx GB in size should be hashed correctly.
