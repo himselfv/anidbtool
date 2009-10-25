@@ -9,6 +9,13 @@ Features
 - Strict compliance with AniDB UDP API short-term messaging timeout rules. No message is sent in less than two seconds after the previous one. Even if you restart the application.
 
 
+Issues
+===================
+Last-minute issues:
+- DO NOT run several instances of anidb tool at once. NEVER. EVER. DO THIS. Just don't, okay?
+- Anidb tool does not handle unicode characters in file names well. Lovers of As with accents, Us with tildes and everything else that does not fit into the default system code page, beware.
+
+
 Syntax
 ===================
 Usage: anidb <command> <params>
