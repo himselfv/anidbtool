@@ -35,6 +35,45 @@ Configuration flags are used to redefine/change settings:
 - /errors or /-noerrors disables /noerrors if it have been enabled through configuration file.
 - /autoedit[existing] instructs anidb tool to automatically retry the operation in edit mode if MYLIST ADD request returned 310 FILE ALREADY IN MYLIST. Works only when edit mode is disabled.
 - /-autoedit[existing] disables /autoeditexisting if it have been enabled through configuration file.
+- /usecachedhashes enables using partial hashing scheme as described in the File Cache section of this documentation
+- /-usecachedhashes disables the use of partial hashing scheme
+- /updatecache enables updates to the File Cache.
+- /-updatecache disables all updates to the File Cache.
+- /ignoreunchangedfiles enables suppressing Anidb requests for files which weren't changed. See "File Cache".
+- /-ignoreunchangedfiles or /forceunchangedfiles forces requests to Anidb even if the file state wasn't chagned since last time.
+- /verbose enables printing additional information which isn't really needed but can be helpful when solving problems.
+- /-verbose suppresses verbose log.
+
+
+Configuration
+===================
+Configuration is stored in "anidb.cfg" (or, more specifically, in %appname%.cfg, so if you rename anidb.exe to MYCRAZYAPP.exe, it'll look for configuration in MYCRAZYAPP.cfg).
+
+Available parameters:
+Host: AniDB API server name or IPv4 address. Use default (api.anidb.info)
+Port: AniDB API server port. Use default (9000)
+User: Your AniDB account username
+Pass: Your AniDB account password. Username/password information is sent to AniDB server in plaintext, if this is unacceptable for you - don't use the application until this behaviour changes.
+Timeout: Time in milliseconds the application will wait for answer from AniDB server. If no answer comes in this interval, request will be considered failed.
+RetryCount: Number of times the utility will try to re-query the anidb without getting an answer. Each time it'll wait for Timeout milliseconds before considering request failed.
+
+EditMode: Enables issuing MYLIST EDIT instead of MYLIST ADD for all files by default. Can be disabled with /-editmode from command-line.
+AutoEditExisting: Enables sending MYLIST EDIT after each MYLIST ADD which returns FILE ALREADY IN MYLIST. Can be disabled with /-autoedit from command-line.
+
+DontStopOnErrors: Specifies whether the application should stop when it encounters serious and probably non-recoverable error (such as a loss of internet connectivity or ban on anidb). Sometimes it's useful to force application to continue, for example, if you're adding a whole bunch (say, 1000) of files and do not want to retry the whole process AND you're sure any possible loss of connectivity should not last long. In this case anidb tool will add most of the files on the fly and present a list of files which weren't added for you to add them manually.
+That's still better than when your connection drops dead in the middle of hashing 1000+ files and anidb tool encounters a critical error, dropping the whole task. With DontStopOneErrors disabled you'll either have to re-hash all the 1000+ files or to select the remaining say 500+ files for hashing manually.
+Can be disabled with /-noerrors from command-line.
+
+UseCachedHashes: controls the use of partial hashing scheme as described in the File Cache section of this documentation
+
+UpdateCache: enables/disables updates to the File Cache. Enabling updates does not imply forcing them: if the update is unnecessary, File Cache will not be written to, thus minimizing the chance of screwing something up and destroying the cache. Not like it's a big loss, of course. Disabling updates effectively means making the File Cache read-only. This includes partial hash updates and file state updates.
+
+IgnoreUnchangedFiles: controls suppressing Anidb requests for files which weren't changed. See "File Cache".
+
+Verbose: controls printing additional information which isn't really needed but can be helpful when solving problems. If disabled, the tool will not print verbose data, although will keep printing important messages.
+
+Session information is stored in "session.cfg". This file is not required, you can delete it and it'll be recreated automatically on the next application run. However, session information will be lost and the application will automatically re-logon to AniDB.
+In fact, it might be useful to try delete this file if you encounter problems with AniDB.
 
 
 How to use
@@ -75,27 +114,29 @@ Naturally, you might want to always MYLIST EDIT files instead of MYLIST ADDing t
 The solution is to use /autoedit or set AutoEditExisting in the configuration file to True. In this case anidb tool will first issue a MYLIST ADD request for every file, and if it returns "FILE ALREADY IN MYLIST", another request to MYLIST EDIT the file will be issued. This, of course, comes with a cost of having an additional two second wait delay for every file you re-send to anidb.
 
 
-Configuration
+File Cache
 ===================
-Configuration is stored in "anidb.cfg" (or, more specifically, in %appname%.cfg, so if you rename anidb.exe to MYCRAZYAPP.exe, it'll look for configuration in MYCRAZYAPP.cfg).
+Anidb tool supports File Cache. This feature drastically reduces the number of requests to Anidb and the time spent in hashing if you rehash the files you've hashed already. Basically, with File Cache enabled, for files you've already hashed and whose state weren't changed since that time, Anidb tool will only hash the first chunk (~10Mb) of the file and will not issue any requests to Anidb.
 
-Available parameters:
-Host: AniDB API server name or IPv4 address. Use default (api.anidb.info)
-Port: AniDB API server port. Use default (9000)
-User: Your AniDB account username
-Pass: Your AniDB account password. Username/password information is sent to AniDB server in plaintext, if this is unacceptable for you - don't use the application until this behaviour changes.
-Timeout: Time in milliseconds the application will wait for answer from AniDB server. If no answer comes in this interval, request will be considered failed.
-RetryCount: Number of times the utility will try to re-query the anidb without getting an answer. Each time it'll wait for Timeout milliseconds before considering request failed.
+More specifically, the partial hashing scheme works by hashing only the first chunk of the file (this is called the Lead Hash) and then looking in the File Cache for files with the same Lead Hash. If such files are found, their complete hash is taken from the File Cache instead of recalculating it from the scratch.
 
-EditMode: Enables issuing MYLIST EDIT instead of MYLIST ADD for all files by default. Can be disabled with /-editmode from command-line.
-AutoEditExisting: Enables sending MYLIST EDIT after each MYLIST ADD which returns FILE ALREADY IN MYLIST. Can be disabled with /-autoedit from command-line.
+This scheme has a potential drawback: if you leave the first chunk of the file unchanged but still change the subsequent chunks, the file will still hash to the same Lead Hash and thus resolve to the same File Cache record. In other words, anidb tool will NOT see the changes you introduced to the file, and will continue to believe this is the same old file which hashes to the same old complete hash.
 
-DontStopOnErrors: Specifies whether the application should stop when it encounters serious and probably non-recoverable error (such as a loss of internet connectivity or ban on anidb). Sometimes it's useful to force application to continue, for example, if you're adding a whole bunch (say, 1000) of files and do not want to retry the whole process AND you're sure any possible loss of connectivity should not last long. In this case anidb tool will add most of the files on the fly and present a list of files which weren't added for you to add them manually.
-That's still better than when your connection drops dead in the middle of hashing 1000+ files and anidb tool encounters a critical error, dropping the whole task. With DontStopOneErrors disabled you'll either have to re-hash all the 1000+ files or to select the remaining say 500+ files for hashing manually.
-Can be disabled with /-noerrors from command-line.
+This situation is rare with video files though, since it's rare for an end user to edit a video file you hash for anidb anyway, and even if you edit the file, you usually change it's header too, thus changing the first chunk and making it clear to anidb the file was changed. But still, keep this in mind. If you REALLY, POSITIVELY need a true hash of the file, use the "/-usecachedhashes" option as described in the Syntax section.
 
-Session information is stored in "session.cfg". This file is not required, you can delete it and it'll be recreated automatically on the next application run. However, session information will be lost and the application will automatically re-logon to AniDB.
-In fact, it might be useful to try delete this file if you encounter problems with AniDB.
+File Cache can also reduce the number of requests to anidb. This is done in the following way. When you MYLIST ADD or MYLIST EDIT a file first, if UpdateCache is enabled as described in the Configuration section, anidb tool will save a record in the file cache, keeping track of anidb's State and Watched params. If, on the next occasion, you try to MYLIST ADD or MYLIST EDIT the same file again and you have IgnoreUnchangedFiles enabled, anidb tool will compare your new State and Watched params to the ones it saved, and if the tool sees no changes, it will not issue the same request again.
+
+This is quite useful if you want to add some new files you haven't added before, but they're in the folder with a lot of files you HAVE already added before. You can just MYLIST ADD the whole folder and with IgnoreUnchangedFiles enabled anidb will MYLIST ADD only those files which weren't added before.
+
+This, again, has some drawbacks. If, by the will of God or other not so godly forces, the anidb tool comes to believe that the file was successfully added while it wasn't, next time you try to add it with IgnoreUnchangedFiles enabled, anidb tool will just nod without actually doing anything, which is obviously not what you want. You can force anidb tool to add/edit even those files which weren't change since last time by setting "/forceunchangedfiles" key as described in Syntax section.
+
+The File Cache is kept in "file.db" in the program folder; it's format is undocumented and is subject to change. The format might, in fact, change in the following versions, even to the degree that the following versions will not be able to import the file, so you should not think of "file.db" as of something to care about and backup properly. If the file is not found, it will be recreated, but you'll lose all your cache of course - just rehash everything if you care. You can try solving problems with File Cache by deleting it.
+
+
+About renaming
+===================
+You can rename files as much as you want. Anidb tool identifies files by their hashes, that is, basically, by their contents. As long as the contents remains unchanged, no mattter which name you give to your file, Anidb tool will still know this is the same file as before.
+
 
 
 Version Info
@@ -110,6 +151,5 @@ Version Info
 
 Planned Features
 ===================
-- Hash cache (if hash of first, say, 4096 bytes of the file is in cache, then do not hash file further and use complete file hash stored in cache)
-- Mylist cache (to reduce number of requests to anidb and speedup process further)
-- "Known files" and an option to ignore files already added to anidb.
+- "Server Busy" detection and auto-retry
+- Ability to look into File Cache from the command-line

@@ -1,29 +1,32 @@
 unit md4;
 
 interface
-uses Windows;
+uses SysUtils, Windows;
 
-  const
-    MD4_BLOCK_SIZE = 16 * 4;
-    MD4_LENGTH_SIZE = 2 * 4;
+const
+  MD4_BLOCK_SIZE = 16 * 4;
+  MD4_LENGTH_SIZE = 2 * 4;
 
-  type
-    MD4State = record
-      A, B, C, D: cardinal;
-    end;
+type
+  MD4State = record
+    A, B, C, D: cardinal;
+  end;
 
-    MD4Context = record
-      wwSize: int64;
-      wwRemSize: int64;
-      lpRemData: array[1..MD4_BLOCK_SIZE] of byte;
-      State: MD4State;
-    end;
+  MD4Context = record
+    wwSize: int64;
+    wwRemSize: int64;
+    lpRemData: array[1..MD4_BLOCK_SIZE] of byte;
+    State: MD4State;
+  end;
 
-    MD4Digest = array[0..15] of byte;
+  MD4Digest = array[0..15] of byte;
 
-  procedure MD4Init( var Context: MD4Context );
-  procedure MD4Final( var Context: MD4Context; var Digest: MD4Digest );
-  procedure MD4Update( var Context: MD4Context; lpData: pchar; wwDataSize: int64 );
+procedure MD4Init( var Context: MD4Context );
+procedure MD4Final( var Context: MD4Context; var Digest: MD4Digest );
+procedure MD4Update( var Context: MD4Context; lpData: pchar; wwDataSize: int64 );
+
+function SameMd4(a, b: MD4Digest): boolean; inline;
+function Md4ToString(md4: MD4Digest): string;
 
 implementation
 
@@ -75,7 +78,7 @@ begin
   X := PMD4Block(lpX);
 
   with State do begin
-   // Round 1
+   //Round 1
     S_1( A,B,C,D, 0, 3 );
     S_1( D,A,B,C, 1, 7 );
     S_1( C,D,A,B, 2, 11 );
@@ -96,7 +99,7 @@ begin
     S_1( C,D,A,B, 14, 11 );
     S_1( B,C,D,A, 15, 19 );
 
-  // Round 2
+   //Round 2
     S_2( A,B,C,D, 0, 3 );
     S_2( D,A,B,C, 4, 5 );
     S_2( C,D,A,B, 8, 9 );
@@ -164,7 +167,7 @@ begin
   with Context do begin
     Inc(wwSize, wwDataSize);
 
-  // First pass - check if there's unused data from previous sessions
+   //First pass - check if there's unused data from previous sessions
     if( wwRemSize + wwDataSize >= MD4_BLOCK_SIZE )
     and( wwRemSize > 0 )then begin
       Dec( wwDataSize, MD4_BLOCK_SIZE-wwRemSize );
@@ -174,14 +177,14 @@ begin
       wwRemSize := 0;
     end;
 
-  // Further passes - use the data without copying
+   //Further passes - use the data without copying
     while( wwDataSize >= MD4_BLOCK_SIZE ) do begin
       Dec( wwDataSize, MD4_BLOCK_SIZE );
       MD4_ProcessBlock( pdword(lpData), State );
-      Inc( lpData, MD4_BLOCK_SIZE );      
+      Inc( lpData, MD4_BLOCK_SIZE );
     end;
 
-  // Save the remaining data for the next updates
+   //Save the remaining data for the next updates
     if( wwDataSize > 0 )then begin
       CopyMemory( @lpRemData[wwRemSize+1], lpData, wwDataSize );
       wwRemSize := wwRemSize + wwDataSize;
@@ -195,26 +198,39 @@ var dwRem: cardinal;
     lpDta: array of byte;
 begin
   with Context do begin
-  // Calculate zeroes count
+   //Calculate zeroes count
     dwRem := (wwSize+1) mod MD4_BLOCK_SIZE;
     if( dwRem <= MD4_BLOCK_SIZE - MD4_LENGTH_SIZE )then
       dwRem := MD4_BLOCK_SIZE - MD4_LENGTH_SIZE - dwRem
     else
       dwRem := 2*MD4_BLOCK_SIZE - MD4_LENGTH_SIZE - dwRem;
 
-  // Create appendix array
+   //Create appendix array
     SetLength( lpDta, 1+dwRem+MD4_LENGTH_SIZE );
     lpDta[0] := $80;
     ZeroMemory( @lpDta[1], dwRem );
     pint64(@lpDta[1+dwRem])^ := wwSize*8; // Length in bits
 
-  // Process appendix array
+   //Process appendix array
     MD4Update( Context, @lpDta[0], 1+dwRem+MD4_LENGTH_SIZE );
 
-  // Create digest
+   //Create digest
     CopyMemory( @Digest[0], @State, sizeof(Digest) );
 
   end;
+end;
+
+function SameMd4(a, b: MD4Digest): boolean; inline;
+begin
+  Result := CompareMem(@a, @b, SizeOf(a));
+end;
+
+function Md4ToString(md4: MD4Digest): string;
+var i: integer;
+begin
+  Result := '';
+  for i := 0 to Length(md4) - 1 do
+    Result := Result + IntToHex(md4[i], 2);
 end;
 
 end.

@@ -15,6 +15,9 @@ type
 const
   INFINITE = cardinal(-1);
 
+const
+  ANIDB_REQUEST_PAUSE = 2 * OneSecond + 500 * OneMillisecond;
+
 type
   TUdpConnection = class
   protected
@@ -34,6 +37,15 @@ type
     fdRead: TFdSet;
 
     function HostnameToAddr(name: string; out addr: in_addr): boolean;
+
+  private
+   //Buffers for reading things out
+    buf: pbyte;
+    bufsz: integer;
+    procedure FreeBuffers;
+  protected
+    function PendingDataSize: integer;
+    procedure FlushInput;
 
   public
     constructor Create;
@@ -126,13 +138,24 @@ begin
   inherited;
   FSocket := INVALID_SOCKET;
   FLocalPort := 0; //random local port
+  buf := nil;
+  bufsz := 0;
 end;
 
 destructor TUdpConnection.Destroy;
 begin
   if Connected then
     Disconnect;
+  FreeBuffers;
   inherited;
+end;
+
+procedure TUdpConnection.FreeBuffers;
+begin
+  if Assigned(buf) then
+    FreeMem(buf);
+  buf := nil;
+  bufsz := 0;
 end;
 
 function TUdpConnection.HostnameToAddr(name: string; out addr: in_addr): boolean;
@@ -243,7 +266,7 @@ end;
 procedure TUdpConnection.SetLocalPort(Value: word);
 begin
  //We can't change active port if we're connected, so we just plan to use new port in the future.
-  FLocalPort := Value;  
+  FLocalPort := Value;
 end;
 
 procedure TUdpConnection.Send(s: string);
@@ -291,12 +314,41 @@ begin
   Result := true;
 end;
 
+
+//Returns the size of the data pending in the input buffer. This may differ
+//from how much winsock will actually return on recv. See docs for FIONREAD.
+function TUdpConnection.PendingDataSize: integer;
+begin
+  if ioctlsocket(FSocket, FIONREAD, Result) <> 0 then
+    raise ESocketError.Create(WsaGetLastError, 'ioctlsocket()');
+end;
+
+//Reads out everything in the input buffer. Use to clean up and minimize
+//the chances of getting the answer to the previous question.
+procedure TUdpConnection.FlushInput;
+var sz: integer;
+begin
+  sz := PendingDataSize;
+  while sz > 0 do begin
+    if bufsz < sz then begin
+      bufsz := sz;
+      ReallocMem(buf, bufsz);
+    end;
+
+    if WinSock.recv(FSocket, buf^, sz, 0) < 0 then
+      raise ESocketError.Create(WsaGetLastError, 'recv()');
+
+    sz := PendingDataSize;
+  end;
+end;
+
 function TUdpConnection.Exchange(inp: string; Timeout: cardinal; RetryCount: integer): string;
 var i: integer;
   done: boolean;
 begin
   i := 0;
   repeat
+    FlushInput();
     Send(inp);
     done := Recv(Result, Timeout);
     Inc(i);
@@ -355,8 +407,8 @@ function TAnidbConnection.Exchange(cmd, params: string; var outp: TStringArray):
 var str: string;
   i: integer;
 begin
-  while now - LastCommandTime < 2 * OneSecond + 100 * OneMillisecond do
-    Sleep( Trunc(MilliSecondSpan(now, LastCommandTime)) );
+  while now - LastCommandTime < ANIDB_REQUEST_PAUSE do
+    Sleep( Trunc(MilliSecondSpan(now, LastCommandTime + ANIDB_REQUEST_PAUSE)) );
 
   str := inherited Exchange(cmd + ' ' + params, Timeout, RetryCount);
 

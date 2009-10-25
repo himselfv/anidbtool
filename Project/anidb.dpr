@@ -10,7 +10,6 @@ uses
   ed2k in '..\..\#Units\Crypt\Hashes\ed2k.pas',
   FileInfo in 'FileInfo.pas';
 
-
 type
   TAnidbOptions = record
     FileState: integer;
@@ -23,16 +22,26 @@ type
     ParseSubdirs: boolean;
     DontStopOnErrors: boolean;
     AutoEditExisting: boolean;
+    UseCachedHashes: boolean;
+    UpdateCache: boolean;
+    IgnoreUnchangedFiles: boolean;
+    Verbose: boolean;
   end;
   PProgramOptions = ^TProgramOptions;
 
-function Md4ToString(md4: MD4Digest): string;
-var i: integer;
-begin
-  Result := '';
-  for i := 0 to Length(md4) - 1 do
-    Result := Result + IntToHex(md4[i], 2);
-end;
+var
+  Config: TStringList;
+  SessionInfo: TStringList;
+
+  ConfigFilename: string;
+  SessionFilename: string;
+  FileDbFilename: string;
+
+  AnidbServer: TAnidbConnection;
+  FileDb: TFileDb;
+
+  ProgramOptions: TProgramOptions;
+  AnidbOptions: TAnidbOptions;    
 
 procedure ShowUsage;
 begin
@@ -50,22 +59,10 @@ begin
   writeln('  /edit forces edit mode');
   writeln('  /noerrors allows to skip errors and continue adding files');
   writeln('  /autoedit instructs to edit the file if it''s already in mylist');
+  writeln('  /verbose displays additional information');
+  writeln('See help file for other options.');
 end;
 
-var
-  Config: TStringList;
-  SessionInfo: TStringList;
-{$IFDEF DEBUG}
-  HashList: TStringList;
-{$ENDIF}
-
-  ConfigFilename: string;
-  SessionFilename: string;
-{$IFDEF DEBUG}
-  HashlistFilename: string;
-{$ENDIF}
-
-  AnidbServer: TAnidbConnection;
 
 procedure App_Init;
 var FPort: integer;
@@ -76,6 +73,7 @@ var FPort: integer;
 begin
   ConfigFilename := ChangeFileExt(paramstr(0), '.cfg');
   SessionFilename := ExtractFilePath(paramstr(0)) + 'session.cfg';
+  FileDbFilename := ExtractFilePath(paramstr(0)) + 'file.db';
 {$IFDEF DEBUG}
   HashlistFilename := ExtractFilePath(paramstr(0)) + 'hash.lst';
 {$ENDIF}
@@ -99,6 +97,7 @@ begin
   if not TryStrToInt(Config.Values['RetryCount'], FRetryCount) then
     raise Exception.Create('Incorrect "RetryCount" value set in config.');
 
+ //Create anidb client
   AnidbServer := TAnidbConnection.Create();
   AnidbServer.Timeout := FTimeout;
   AnidbServer.Client := 'hscan';
@@ -119,14 +118,29 @@ begin
   end;
 
   AnidbServer.Connect(Config.Values['Host'], FPort);
-  
 
-{$IFDEF DEBUG}
- //Load hash cache
-  HashList := TStringList.Create;
-  if FileExists(HashlistFilename) then
-    HashList.LoadFromFile(HashlistFilename);
- {$ENDIF}
+ //Open file database
+  FileDb := TFileDb.Create(FileDbFilename);
+
+ //Default options
+  ProgramOptions.ParseSubdirs := false;
+  ProgramOptions.DontStopOnErrors := false;
+  ProgramOptions.UseCachedHashes := true;
+  ProgramOptions.UpdateCache := true;
+  ProgramOptions.IgnoreUnchangedFiles := true;
+  ProgramOptions.Verbose := false;
+  AnidbOptions.FileState := STATE_UNKNOWN;
+  AnidbOptions.Watched := false;
+  AnidbOptions.EditMode := false;
+
+ //Read some default options from config
+  TryStrToBool(Config.Values['EditMode'], AnidbOptions.EditMode);
+  TryStrToBool(Config.Values['DontStopOnErrors'], ProgramOptions.DontStopOnErrors);
+  TryStrToBool(Config.Values['AutoEditExisting'], ProgramOptions.AutoEditExisting);
+  TryStrToBool(Config.Values['UseCachedHashes'], ProgramOptions.UseCachedHashes);
+  TryStrToBool(Config.Values['UpdateCache'], ProgramOptions.UpdateCache);
+  TryStrToBool(Config.Values['IgnoreUnchangedFiles'], ProgramOptions.IgnoreUnchangedFiles);
+  TryStrToBool(Config.Values['Verbose'], ProgramOptions.Verbose);
 end;
 
 procedure App_SaveSessionInfo;
@@ -147,15 +161,28 @@ end;
 procedure App_Deinit;
 begin
   App_SaveSessionInfo;
-{$IFDEF DEBUG}
-  Hashlist.SaveToFile(HashlistFilename);
-{$ENDIF}  
+  FreeAndNil(FileDb);
   FreeAndNil(SessionInfo);
   FreeAndNil(Config);
 end;
 
 
-procedure HashFile(fname: string; out size: int64; out ed2k: MD4Digest);
+function GetFileSizeEx(h: THandle): int64;
+var sz_low: cardinal;
+  err: integer;
+begin
+  Result := 0;
+  sz_low := GetFileSize(h, pointer(cardinal(@Result) + 4));
+  if sz_low = INVALID_FILE_SIZE then begin
+    err := GetLastError();
+    if err <> 0 then
+      RaiseLastOsError(err);
+  end;
+  Result := Result + sz_low;
+end;
+
+//Also returns PFileInfo if instructed to use it OR update it through program options
+procedure HashFile(fname: string; out size: int64; out ed2k: MD4Digest; out f: PFileInfo);
 var h: THandle;
   c: Ed2kContext;
 
@@ -166,9 +193,12 @@ var h: THandle;
   buf_size: cardinal;
 
   full_chunk_cnt: integer;
-  FirstChunkHash: MD4Digest;
+  lead: MD4Digest;
+
+  PartialHashStopFlag: boolean;
 begin
   writeln('Hashing '+fname+'...');
+  f := nil;
 
   h := CreateFile(pchar(fname), GENERIC_READ, FILE_SHARE_READ, nil,
     OPEN_EXISTING, 0, 0);
@@ -183,6 +213,7 @@ begin
   GetMem(buf, buf_size);
 
   try
+    PartialHashStopFlag := false;
     this_chunk_size := 0;
     repeat
       if not ReadFile(h, buf^, buf_size, bytesRead, nil) then
@@ -192,27 +223,60 @@ begin
       Inc(this_chunk_size, bytesRead);
 
       if this_chunk_size >= ED2K_CHUNK_SIZE then begin
-       //If this is the first chunk, remember it's hash
-        if full_chunk_cnt = 0 then
-          Ed2kNextChunk2(c, FirstChunkHash)
+       //If this is the first chunk
+        if full_chunk_cnt = 0 then begin
+         //Calculate lead hash
+          Ed2kNextChunk2(c, lead);
+
+         //If configured to, try to use hash cache
+          f := FileDb.FindByLead(lead);
+          PartialHashStopFlag := Assigned(f);
+        end
         else //we don't care
           Ed2kNextChunk(c);
 
         this_chunk_size := 0;
         Inc(full_chunk_cnt);
       end;
-    until bytesRead < buf_Size;
+    until (bytesRead < buf_Size) or PartialHashStopFlag;
 
-   Ed2kFinal(c, ed2k);
+   //Even with PartialHashStop we need to finalize Ed2k calculation anyway
+    Ed2kFinal(c, ed2k);
 
-   size := full_chunk_cnt;
-   size := size * ED2K_CHUNK_SIZE;
-   size := size + this_chunk_size;
+    if PartialHashStopFlag then begin
+      if ProgramOptions.Verbose then
+        writeln('Partial hash found, using cache.');
+      ed2k := f.ed2k;
+    end;
 
-{$IFDEF DEBUG}
-  //Record FirstChunkHash to the cache
-   HashList.Values[Md4ToString(FirstChunkHash)] := Md4ToString(ed2k);
-{$ENDIF}   
+   //Get file size. We could have used cached data with PartialHashStop,
+   //but let's not risk more than neccessary.
+    size := GetFileSizeEx(h);
+
+   //Nothing to update when it's PartialHashStop, we just read the same data
+    if ProgramOptions.UpdateCache and not PartialHashStopFlag then begin
+      f := FileDb.FindByLead(lead);
+      if f=nil then begin
+        f := FileDb.AddNew;
+        f.size := size;
+        f.ed2k := ed2k;
+        f.lead := lead;
+        if ProgramOptions.Verbose then
+          writeln('Cached hash added.');
+      end else begin
+       //No point in updating the data and marking it for save if it's already fine
+        if (f.size <> size)
+        or not SameMd4(f.ed2k, ed2k) then begin
+          f.size := size;
+          f.ed2k := ed2k;
+          FileDb.Changed;
+          if ProgramOptions.Verbose then
+            writeln('Cached hash updated.');
+        end;
+      end;
+    end;
+
+   //Rememer, we must return f if we're in UpdateCache mode.
 
   finally
     FreeMem(buf);
@@ -224,8 +288,9 @@ end;
 procedure Exec_Hash(fname: string);
 var hash: MD4Digest;
   size: int64;
+  f: PFileInfo;
 begin
-  HashFile(fname, size, hash);
+  HashFile(fname, size, hash, f);
   writeln('Size: '+IntToStr(size));  
   writeln('Hash: '+MD4ToString(hash));
 end;
@@ -237,6 +302,7 @@ var
   f_size: int64;
   f_ed2k: MD4Digest;
   res: TAnidbResult;
+  f: PFileInfo;
 begin
   if not AnidbServer.LoggedIn then begin
     AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
@@ -248,13 +314,27 @@ begin
  //It's required by AniDB protocol to send commands once in two seconds.
  //Break is strictly enforced by lower level, but if possible, we will try to
  //softly support it from upper levels too.
-  HashFile(fname, f_size, f_ed2k);
+  HashFile(fname, f_size, f_ed2k, f);
+
+  if ProgramOptions.IgnoreUnchangedFiles
+  and Assigned(f)
+  and (f.StateSet)
+  and (f.State = AnidbOptions.FileState)
+  and (f.Watched = AnidbOptions.Watched)
+  then begin
+    writeln('File unchanged, ignoring.');
+    Result := true;
+    exit;
+  end;
+  
 
   res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
     AnidbOptions.Watched, AnidbOptions.EditMode);
   if (res.code=INVALID_SESSION)
   or (res.code=LOGIN_FIRST)
   or (res.code=LOGIN_FAILED) then begin
+    if ProgramOptions.Verbose then
+      writeln(res.ToString);  
     writeln('Session is obsolete, restoring...');
     AnidbServer.SessionKey := '';
     AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
@@ -269,6 +349,9 @@ begin
  //If we're in EditMode, no need to try editing again
   if (not AnidbOptions.EditMode) and (ProgramOptions.AutoEditExisting)
   and (res.code = FILE_ALREADY_IN_MYLIST) then begin
+    if ProgramOptions.Verbose then
+      writeln(res.ToString);  
+    writeln('File in mylist, editing...');
 
    //Trying again, editing this time
     res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
@@ -280,7 +363,17 @@ begin
 
   Result := (res.code = MYLIST_ENTRY_ADDED)
     or ((res.code = FILE_ALREADY_IN_MYLIST) and not ProgramOptions.AutoEditExisting) //if we AutoEditExisting, this error should not occur
-    or (res.code = MYLIST_ENTRY_EDITED);  
+    or (res.code = MYLIST_ENTRY_EDITED);
+
+  if ProgramOptions.UpdateCache and Result then begin
+   //If UpdateCache is on, we should have f assigned.
+    Assert(Assigned(f), 'UpdateCache is on and yet cache record is not assigned.');
+
+    f.State := AnidbOptions.FileState;
+    f.Watched := AnidbOptions.Watched;
+    f.StateSet := true;
+    FileDb.Changed;
+  end;
 end;
 
 {$REGION 'File enumeration'}
@@ -395,9 +488,6 @@ end;
 procedure Execute();
 var i: integer;
 
-  ProgramOptions: TProgramOptions;
-  AnidbOptions: TAnidbOptions;
-
  //All enumerated files + current file
   files: TStringArray;
   file_name: string;
@@ -412,17 +502,6 @@ var i: integer;
  //Filemask count. Used to check if at least one was specified.
   filemask_cnt: integer;
 begin
- //Default options
-  ProgramOptions.ParseSubdirs := false;
-  ProgramOptions.DontStopOnErrors := false;
-  AnidbOptions.FileState := STATE_UNKNOWN;
-  AnidbOptions.Watched := false;
-  AnidbOptions.EditMode := false;
-
- //Read some default options from config
-  TryStrToBool(Config.Values['EditMode'], AnidbOptions.EditMode);
-  TryStrToBool(Config.Values['DontStopOnErrors'], ProgramOptions.DontStopOnErrors);
-  TryStrToBool(Config.Values['AutoEditExisting'], ProgramOptions.AutoEditExisting);
 
  //Parse main command
   if ParamCount < 1 then begin
@@ -503,6 +582,48 @@ begin
     or SameText(param, '/-autoeditexisting') then begin
       ProgramOptions.AutoEditExisting := false;
     end else
+
+   //UseCachedHashes
+    if SameText(param, '/usecachedhashes') then begin
+      ProgramOptions.UseCachedHashes := true;
+    end else
+
+   //Disable UseCachedHashes
+    if SameText(param, '/-usecachedhashes') then begin
+      ProgramOptions.UseCachedHashes := false;
+    end else
+
+   //UpdateCache
+    if SameText(param, '/updatecache') then begin
+      ProgramOptions.UpdateCache := true;
+    end else
+
+   //Disable UpdateCache
+    if SameText(param, '/-updatecache') then begin
+      ProgramOptions.UpdateCache := false;
+    end else
+
+   //IgnoreUnchangedFiles (for mylistadd only)
+    if SameText(param, '/ignoreunchangedfiles') then begin
+      ProgramOptions.IgnoreUnchangedFiles := true;
+    end else
+
+   //-IgnoreUnchangedFiles (for mylistadd only)
+    if SameText(param, '/-ignoreunchangedfiles')
+    or SameText(param, '/forceunchangedfiles') then begin
+      ProgramOptions.IgnoreUnchangedFiles := false;
+    end else
+
+   //Verbose
+    if SameText(param, '/verbose') then begin
+      ProgramOptions.Verbose := true;
+    end else
+
+   //Disable Verbose
+    if SameText(param, '/-verbose') then begin
+      ProgramOptions.Verbose := false;
+    end else
+
 
    //Unknown option
     begin
