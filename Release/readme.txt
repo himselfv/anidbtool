@@ -18,17 +18,17 @@ Last-minute issues:
 
 Syntax
 ===================
-Usage: anidb <command> <params>
+Usage: anidb [configuration flags] <command> <params>
 
 Available commands:
-> - hash <filename> [/s] [filename] [filename]...
+> hash <filename> [/s] [filename] [filename]...
 Hashes file and prints it's ed2k hash and file size in bytes.
 
-> - mylistadd <filename> [configuration flags] [operation flags] [/s] [filename] [filename]...
+> mylistadd <filename> [operation flags] [/s] [filename] [filename]...
 Hashes file and adds it to anidb.
 
 Here:
-- <filename> stands for file or directory name, or file mask (for example, K:\Anime\*.avi)
+- <filename> stands for file or directory name or file mask (for example, K:\Anime\*.avi)
 - /s activates subdirectory parsing. With /s enabled (K:\Anime\*.avi) will enumerate all files with avi extension in K:\Anime and it's subdirectories.
 
 Operation flags control the operation to perform on the files:
@@ -42,11 +42,11 @@ Configuration flags are used to redefine/change settings:
 - /errors or /-noerrors disables /noerrors if it have been enabled through configuration file.
 - /autoedit[existing] instructs anidb tool to automatically retry the operation in edit mode if MYLIST ADD request returned 310 FILE ALREADY IN MYLIST. Works only when edit mode is disabled.
 - /-autoedit[existing] disables /autoeditexisting if it have been enabled through configuration file.
-- /usecachedhashes enables using partial hashing scheme as described in the File Cache section of this documentation
+- /usecachedhashes enables the use of partial hashing scheme as described in the File Cache section of this documentation
 - /-usecachedhashes disables the use of partial hashing scheme
 - /updatecache enables updates to the File Cache.
 - /-updatecache disables all updates to the File Cache.
-- /ignoreunchangedfiles enables suppressing Anidb requests for files which weren't changed. See "File Cache".
+- /ignoreunchangedfiles enables skipping Anidb requests for files which weren't changed. See "File Cache".
 - /-ignoreunchangedfiles or /forceunchangedfiles forces requests to Anidb even if the file state wasn't chagned since last time.
 - /verbose enables printing additional information which isn't really needed but can be helpful when solving problems.
 - /-verbose suppresses verbose log.
@@ -86,9 +86,8 @@ In fact, it might be useful to try delete this file if you encounter problems wi
 How to use
 ===================
 First, configure the application according to the "Configuration" section. Basically, you'll only need to specify your username and password.
-Now check that everything is working properly. Chose any file known to AniDB (some anime episode, for example) and execute "anidb mylistadd <filename>" from the command line. File will be hashed and added to your mylist. Verify that the answer from server is "mylist entry added", "mylist entry edited" or at least "already in mylist".
-
-Now you can use this tool from the command line.
+Now verify that everything is working properly. Choose any file known to AniDB (some anime episode, for example) and run "anidb mylistadd <filename>" from the command line. If evernything is fine, the file will be hashed and added to your mylist. Check that the answer from server is "mylist entry added", "mylist entry edited" or at least "already in mylist".
+Like this, you can use the tool from the command-line.
 
 You can also configure your system to use this tool from Explorer. There's a batch file called "Add to Anidb.cmd" in the distribution packet. Create a shortcut to this file in your profile's SendTo folder. Now you can right-click any file, directory or a bunch of files, choose "SendTo> Add to Anidb", and these files or all files from the selected directory and it's subdirectories will be added to your mylist.
 You can customize the batch file to change command-line params.
