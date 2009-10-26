@@ -1,7 +1,7 @@
 unit AnidbConnection;
 
 interface
-uses SysUtils, DateUtils, WinSock, AnidbConsts;
+uses SysUtils, DateUtils, WinSock, Windows, AnidbConsts;
 
 //Single-threaded usage only!
 
@@ -12,11 +12,17 @@ type
     constructor Create(hr: integer; op: string); overload;
   end;
 
+  ENoAnswerFromServer = class(Exception);
+
+ //Exceptions of this kind stop the execution no matter what.
+  ECritical = class(Exception);
+
 const
   INFINITE = cardinal(-1);
 
 const
-  ANIDB_REQUEST_PAUSE = 2 * OneSecond + 500 * OneMillisecond;
+  ANIDB_REQUEST_PAUSE: TDatetime = 2 * OneSecond + 500 * OneMillisecond;
+  ANIDB_BUSY_PAUSE: cardinal = 5000; //milliseconds
 
 type
   TUdpConnection = class
@@ -80,45 +86,79 @@ type
     constructor Create(res: TAnidbResult);
   end;
 
+  TAnidbMylistStats = record
+    cAnimes: integer;
+    cEps: integer;
+    cFiles: integer;
+    cSizeOfFiles: integer;
+    cAddedAnimes: integer;
+    cAddedEps: integer;
+    cAddedFiles: integer;
+    cAddedGroups: integer;
+    pcLeech: integer;
+    pcGlory: integer;
+    pcViewedOfDb: integer;
+    pcMylistOfDb: integer;
+    pcViewedOfMylist: integer;
+    cViewedEps: integer;
+    cVotes: integer;
+    cReviews: integer;
+  end;
+  PAnidbMylistStats = ^TAnidbMylistStats;
+
+
+  TAnidbConnection = class;
+  TShortTimeoutEvent = procedure(Sender: TAnidbConnection; Time: cardinal) of object;
+  TServerBusyEvent = procedure(Sender: TAnidbConnection; WaitTime: cardinal) of object;
+  TNoAnswerEvent = procedure(Sender: TAnidbConnection; WaitTime: cardinal) of object;
   TAnidbConnection = class(TUdpConnection)
   protected
     FTimeout: cardinal;
-
-    FClient: string;
-    FClientVer: string;
-    FProtoVer: string;
+    FRetryCount: integer;    
 
     FSessionKey: string;
 
    //Date and time when last command was issued.
     FLastCommandTime: TDatetime;
 
-    FRetryCount: integer;    
-
+    FOnShortTimeout: TShortTimeoutEvent;
+    FOnServerBusy: TServerBusyEvent;
+    FOnNoAnswer: TNoAnswerEvent;
+    function Exchange_int(cmd, params: string; var outp: TStringArray): TAnidbResult;
   public
     constructor Create;
 
     function Exchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
     function SessionExchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
 
-    function Login(AUser: string; APass: string): TAnidbResult;
-    procedure Logout;
-    function LoggedIn: boolean;
-
     property Timeout: cardinal read FTimeout write FTimeout;
-    property Client: string read FClient write FClient;
-    property ClientVer: string read FClientVer write FClientVer;
-    property ProtoVer: string read FProtoVer write FProtoVer;
-
-    property RetryCount: integer read FRetryCount write FRetryCount;    
+    property RetryCount: integer read FRetryCount write FRetryCount;
 
    //Session-related cookies
     property SessionKey: string read FSessionKey write FSessionKey;
     property LastCommandTime: TDatetime read FLastCommandTime write FLastCommandTime;
 
+    property OnShortTimeout: TShortTimeoutEvent read FOnShortTimeout write FOnShortTimeout;
+    property OnServerBusy: TServerBusyEvent read FOnServerBusy write FOnServerBusy;
+    property OnNoAnswer: TNoAnswerEvent read FOnNoAnswer write FOnNoAnswer;
+
+  protected //Login
+    FClient: string;
+    FClientVer: string;
+    FProtoVer: string;  
   public
+    function Login(AUser: string; APass: string): TAnidbResult;
+    procedure Logout;
+    function LoggedIn: boolean;
+
+    property Client: string read FClient write FClient;
+    property ClientVer: string read FClientVer write FClientVer;
+    property ProtoVer: string read FProtoVer write FProtoVer;
+
+  public //Commands
     function MyListAdd(size: int64; ed2k: string; state: integer;
       viewed: boolean; edit: boolean): TAnidbResult;
+    function MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;
   end;
 
 implementation
@@ -355,8 +395,10 @@ begin
   until done or (i >= RetryCount);
 
   if not done then
-    raise ESocketError.Create('No answer from server');
+    raise ENoAnswerFromServer.Create('No answer from server');
 end;
+
+////////////////////////////////////////////////////////////////////////////////
 
 function TAnidbResult.ToString: string;
 begin
@@ -403,14 +445,19 @@ begin
   FLastCommandTime := 0;
 end;
 
-function TAnidbConnection.Exchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
+function TAnidbConnection.Exchange_int(cmd, params: string; var outp: TStringArray): TAnidbResult;
 var str: string;
+  tm: cardinal;
   i: integer;
 begin
-  while now - LastCommandTime < ANIDB_REQUEST_PAUSE do
-    Sleep( Trunc(MilliSecondSpan(now, LastCommandTime + ANIDB_REQUEST_PAUSE)) );
+  while now - LastCommandTime < ANIDB_REQUEST_PAUSE do begin
+   //If not yet allowed to send, sleep the remaining time
+    tm := Trunc(MilliSecondSpan(now, LastCommandTime + ANIDB_REQUEST_PAUSE));
+    if Assigned(FOnShortTimeout) then FOnShortTimeout(Self, tm);
+    Sleep(tm);
+  end;
 
-  str := inherited Exchange(cmd + ' ' + params, Timeout, RetryCount);
+  str := inherited Exchange(cmd + ' ' + params, Timeout, 1); //make one try
 
   LastCommandTime := now;  
 
@@ -452,6 +499,55 @@ begin
       Result.msg := pchar(@str[5])
     else
       Result.msg := '';
+end;
+
+//Automatically retries on SERVER_BUSY or on no answer.
+function TAnidbConnection.Exchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
+var retries_left: integer;
+  wait_interval: integer;
+begin
+  retries_left := RetryCount;
+  wait_interval := ANIDB_BUSY_PAUSE;
+
+  while retries_left > 0 do try
+    Result := Exchange_int(cmd, params, outp);
+
+   //Out of service
+    if Result.Code = ANIDB_OUT_OF_SERVICE then
+      raise ECritical.Create('AniDB is out of service - try again no earlier than 30 minutes later.');
+
+    if (Result.Code = ILLEGAL_INPUT_OR_ACCESS_DENIED)
+    or (Result.Code = ACCESS_DENIED)
+    or (Result.Code = UNKNOWN_COMMAND)
+    or (Result.Code = INTERNAL_SERVER_ERROR) then
+      raise ECritical.Create('AniDB error '+Result.ToString+'. Unrecoverable.');
+
+    if (Result.Code = BANNED) then
+      raise ECritical.Create('You were banned from anidb. Investigate the case before retrying.');
+
+   //Other results
+    if Result.code <> SERVER_BUSY then exit;
+
+   //Busy
+    Dec(retries_left);
+    if retries_left > 0 then begin
+      if Assigned(FOnServerBusy) then FOnServerBusy(Self, wait_interval);
+      Sleep(wait_interval);
+      Inc(wait_interval, ANIDB_BUSY_PAUSE);
+    end;
+  except
+   //No answer
+    on ENoAnswerFromServer do begin
+      Dec(retries_left);
+      if retries_left > 0 then begin
+        if Assigned(FOnNoAnswer) then FOnNoAnswer(Self, wait_interval);
+        Sleep(wait_interval);
+        Inc(wait_interval, ANIDB_BUSY_PAUSE);
+      end;
+    end;
+  end;
+
+  raise ECritical.Create('Anidb server is not accessible. Impossible to continue.');
 end;
 
 function TAnidbConnection.SessionExchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
@@ -517,4 +613,39 @@ begin
     ans);
 end;
 
+function TAnidbConnection.MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;
+var ans: TStringArray;
+  vals: TStringArray;
+begin
+  Result := SessionExchange('MYLISTSTATS', '', ans);
+  if Result.code = MYLIST_STATS then begin
+   //The answer should have at least one string
+    if Length(ans) < 2 then
+      raise Exception.Create('Illegal answer from server: no data.');
+
+    ZeroMemory(@Stats, SizeOf(Stats));
+    vals := SplitStr(ans[1], '|');
+    if (Length(vals) < 16)
+    or not TryStrToInt(vals[00], Stats.cAnimes)
+    or not TryStrToInt(vals[01], Stats.cEps)
+    or not TryStrToInt(vals[02], Stats.cFiles)
+    or not TryStrToInt(vals[03], Stats.cSizeOfFiles)
+    or not TryStrToInt(vals[04], Stats.cAddedAnimes)
+    or not TryStrToInt(vals[05], Stats.cAddedEps)
+    or not TryStrToInt(vals[06], Stats.cAddedFiles)
+    or not TryStrToInt(vals[07], Stats.cAddedGroups)
+    or not TryStrToInt(vals[08], Stats.pcLeech)
+    or not TryStrToInt(vals[09], Stats.pcGlory)
+    or not TryStrToInt(vals[10], Stats.pcViewedOfDb)
+    or not TryStrToInt(vals[11], Stats.pcMylistOfDb)
+    or not TryStrToInt(vals[12], Stats.pcViewedOfMylist)
+    or not TryStrToInt(vals[13], Stats.cViewedEps)
+    or not TryStrToInt(vals[14], Stats.cVotes)
+    or not TryStrToInt(vals[15], Stats.cReviews)
+    then
+      raise Exception.Create('Invalid answer format.');
+  end;
+end;
+
 end.
+

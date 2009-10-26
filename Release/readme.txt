@@ -18,7 +18,7 @@ Last-minute issues:
 
 Syntax
 ===================
-Usage: anidb [configuration flags] <command> <params>
+Usage: anidb <command> [configuration flags] <params>
 
 Available commands:
 > hash <filename> [/s] [filename] [filename]...
@@ -79,6 +79,24 @@ IgnoreUnchangedFiles: controls suppressing Anidb requests for files which weren'
 
 Verbose: controls printing additional information which isn't really needed but can be helpful when solving problems. If disabled, the tool will not print verbose data, although will keep printing important messages.
 
+IgnoreExtensions: allows you to set the extensions which you want anidb tool to ignore when adding files to anidb. These restrictions will apply to MYLIST ADD/MYLIST EDITS commands but not to HASH command though.
+Extensions to ignore are separated by comma. Do not use whitespaces after commas, they'll be treated like they're parts of extensions. Wildcards are not allowed. Empty extension is written as ".".
+Good examples:
+  IgnoreExtensions=ass,mp3,sfv,nfo
+  IgnoreExtensions=txt,my extension,cfg
+  IgnoreExtensions=pdf
+  IgnoreExtensions= //ignores nothing
+  IgnoreExtensions=. //ignores empty extension
+  IgnoreExtensions=txt,pdf,.,nfo
+Bad examples:
+  IgnoreExtensions=ass, mp3, sfv, nfo //ignores ". mp3" instead of ".mp3"
+  IgnoreExtensions=txt, //works, but still wrong
+ 
+UseOnlyExtensions: if set, limits the extensions allowed to only those specified in this list. The format is the same as for the IgnoreExtensions parameter. Empty string means allowing every extension except those ignored explicilty through IgnoreExtensions.
+
+
+Session information
+====================
 Session information is stored in "session.cfg". This file is not required, you can delete it and it'll be recreated automatically on the next application run. However, session information will be lost and the application will automatically re-logon to AniDB.
 In fact, it might be useful to try delete this file if you encounter problems with AniDB.
 
@@ -158,5 +176,6 @@ Version Info
 
 Planned Features
 ===================
-- "Server Busy" detection and auto-retry
 - Ability to look into File Cache from the command-line
+- Mylistedit instead of editmode
+- Ability to recognize command verb even if it's not the first parameter in the command line.

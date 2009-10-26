@@ -3,7 +3,7 @@ program anidb;
 {$APPTYPE CONSOLE}
 
 uses
-  SysUtils, Classes, Windows,
+  SysUtils, Classes, Windows, StrUtils,
   AnidbConnection in 'AnidbConnection.pas',
   AnidbConsts in 'AnidbConsts.pas',
   md4 in '..\..\#Units\Crypt\Hashes\md4.pas',
@@ -26,8 +26,18 @@ type
     UpdateCache: boolean;
     IgnoreUnchangedFiles: boolean;
     Verbose: boolean;
+    IgnoreExtensions: string;
+    UseOnlyExtensions: string;
+    function AllowedExtension(ext: string): boolean;
   end;
   PProgramOptions = ^TProgramOptions;
+
+ //Receives AnidbConnection events
+  TAnidbTool = class
+  public //Events
+    procedure ServerBusy(Sender: TAnidbConnection; wait_interval: cardinal);
+    procedure NoAnswer(Sender: TAnidbConnection; wait_interval: cardinal);
+  end;
 
 var
   Config: TStringList;
@@ -37,6 +47,7 @@ var
   SessionFilename: string;
   FileDbFilename: string;
 
+  Tool: TAnidbTool;
   AnidbServer: TAnidbConnection;
   FileDb: TFileDb;
 
@@ -50,6 +61,7 @@ begin
   writeln('  hash <filename> [/s]');
   writeln('  mylistadd <filename> [/s] [/state <state>] [/watched] [/edit] [/noerrors]');
   writeln('   [/autoedit]');
+  writeln('  myliststats');
   writeln('');
   writeln('Where:');
   writeln('  <filename> is file name, mask or directory name');
@@ -71,6 +83,8 @@ var FPort: integer;
   FSessionPort: integer;
   FRetryCount: integer;
 begin
+  Tool := TAnidbTool.Create;
+
   ConfigFilename := ChangeFileExt(paramstr(0), '.cfg');
   SessionFilename := ExtractFilePath(paramstr(0)) + 'session.cfg';
   FileDbFilename := ExtractFilePath(paramstr(0)) + 'file.db';
@@ -104,6 +118,8 @@ begin
   AnidbServer.ClientVer := '1';
   AnidbServer.ProtoVer := '3';
   AnidbServer.RetryCount := FRetryCount;
+  AnidbServer.OnServerBusy := Tool.ServerBusy;
+  AnidbServer.OnNoAnswer := Tool.NoAnswer;
 
  //Restore last command time, if available
   if TryStrToDatetime(SessionInfo.Values['LastCommandTime'], FLastCommandTime) then
@@ -141,6 +157,8 @@ begin
   TryStrToBool(Config.Values['UpdateCache'], ProgramOptions.UpdateCache);
   TryStrToBool(Config.Values['IgnoreUnchangedFiles'], ProgramOptions.IgnoreUnchangedFiles);
   TryStrToBool(Config.Values['Verbose'], ProgramOptions.Verbose);
+  ProgramOptions.IgnoreExtensions := Config.Values['IgnoreExtensions'];
+  ProgramOptions.UseOnlyExtensions := Config.Values['UseOnlyExtensions'];
 end;
 
 procedure App_SaveSessionInfo;
@@ -164,8 +182,70 @@ begin
   FreeAndNil(FileDb);
   FreeAndNil(SessionInfo);
   FreeAndNil(Config);
+  FreeAndNil(Tool);
 end;
 
+////////////////////////////////////////////////////////////////////////////////
+
+//Checks that the list of form "asd,bsd,csd" contans extension "ext"
+function ContainsExt(list: string; ext: string): boolean;
+begin
+  if StartsText(ext, list) then begin
+   //Simple match
+    if Length(list)<=Length(ext) then begin
+      Result := true;
+      exit;
+    end;
+
+   //Verify that it's not extSOMETHINGELSE,bsd,csd
+    if list[Length(ext)+1]=',' then begin
+      Result := true;
+      exit;
+    end;
+
+   //No "Result := false" because we have failed with the first occurence,
+   //but still might find the correct one later
+  end;
+
+  if EndsText(ext, list) then begin
+   //Not checkng for simple match, already checked in StartsText
+
+   //Verify that it's not asd,bsd,SOMETHINGELSEext   
+    if list[Length(list)-Length(ext)]=',' then begin
+      Result := true;
+      exit;
+    end;
+
+   //No "Result := false" because we still have a chance of finding the match inside.
+  end;
+
+  Result := ContainsText(list, ','+ext+','); //param order inversed to Starts/Ends
+end;
+
+function TProgramOptions.AllowedExtension(ext: string): boolean;
+begin
+ //Special case: empty extensions are replaced with "."
+  if ext='' then ext := '.';
+
+  if UseOnlyExtensions <> '' then
+    Result := ContainsExt(UseOnlyExtensions, ext)
+  else
+    Result := (IgnoreExtensions <> '') and not ContainsExt(IgnoreExtensions, ext);
+end;
+
+////////////////////////////////////////////////////////////////////////////////
+
+procedure TAnidbTool.ServerBusy(Sender: TAnidbConnection; wait_interval: cardinal);
+begin
+  writeln('Server busy, sleeping '+IntToStr(wait_interval)+' msec...');
+end;
+
+procedure TAnidbTool.NoAnswer(Sender: TAnidbConnection; wait_interval: cardinal);
+begin
+  writeln('No answer, sleeping '+IntToStr(wait_interval)+' msec...');
+end;
+
+////////////////////////////////////////////////////////////////////////////////
 
 function GetFileSizeEx(h: THandle): int64;
 var sz_low: cardinal;
@@ -243,11 +323,16 @@ begin
    //Even with PartialHashStop we need to finalize Ed2k calculation anyway
     Ed2kFinal(c, ed2k);
 
+   //If we have stopped hashing because we encountered a partial hash hit, use stored hash.
     if PartialHashStopFlag then begin
       if ProgramOptions.Verbose then
         writeln('Partial hash found, using cache.');
       ed2k := f.ed2k;
     end;
+
+   //If on the other hand we haven't got even one full chunk, we don't have lead yet
+    if full_chunk_cnt < 1 then
+      lead := ed2k;
 
    //Get file size. We could have used cached data with PartialHashStop,
    //but let's not risk more than neccessary.
@@ -291,9 +376,11 @@ var hash: MD4Digest;
   f: PFileInfo;
 begin
   HashFile(fname, size, hash, f);
-  writeln('Size: '+IntToStr(size));  
+  writeln('Size: '+IntToStr(size));
   writeln('Hash: '+MD4ToString(hash));
 end;
+
+////////////////////////////////////////////////////////////////////////////////
 
 //Returns TRUE if the file was successfully added OR it was already in mylist.
 //Returns FALSE otherwise
@@ -303,6 +390,7 @@ var
   f_ed2k: MD4Digest;
   res: TAnidbResult;
   f: PFileInfo;
+  EditMode: boolean;
 begin
   if not AnidbServer.LoggedIn then begin
     AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
@@ -327,9 +415,12 @@ begin
     exit;
   end;
   
+ //If the file is in cache, we're sure it's already in mylist, so just edit it. 
+  EditMode := AnidbOptions.EditMode or (Assigned(f) and f.StateSet);
+
 
   res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
-    AnidbOptions.Watched, AnidbOptions.EditMode);
+    AnidbOptions.Watched, EditMode);
   if (res.code=INVALID_SESSION)
   or (res.code=LOGIN_FIRST)
   or (res.code=LOGIN_FAILED) then begin
@@ -342,22 +433,21 @@ begin
 
    //Retry
     res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
-      AnidbOptions.Watched, AnidbOptions.EditMode);
+      AnidbOptions.Watched, EditMode);
   end;
 
 
- //If we're in EditMode, no need to try editing again
-  if (not AnidbOptions.EditMode) and (ProgramOptions.AutoEditExisting)
+ //If we were already editing and not adding, no need to try editing again
+  if (not EditMode) and (ProgramOptions.AutoEditExisting)
   and (res.code = FILE_ALREADY_IN_MYLIST) then begin
     if ProgramOptions.Verbose then
-      writeln(res.ToString);  
+      writeln(res.ToString);
     writeln('File in mylist, editing...');
 
    //Trying again, editing this time
     res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
       AnidbOptions.Watched, {EditMode=}true);
   end;
-  
 
   writeln(res.ToString);
 
@@ -375,6 +465,52 @@ begin
     FileDb.Changed;
   end;
 end;
+
+procedure Exec_MyListStats;
+var Stats: TAnidbMylistStats;
+  res: TAnidbResult;
+begin
+  res := AnidbServer.MyListStats(Stats);
+  if (res.code=INVALID_SESSION)
+  or (res.code=LOGIN_FIRST)
+  or (res.code=LOGIN_FAILED) then begin
+    if ProgramOptions.Verbose then
+      writeln(res.ToString);  
+    writeln('Session is obsolete, restoring...');
+    AnidbServer.SessionKey := '';
+    AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
+    writeln('Logged in');
+
+   //Retry
+    res := AnidbServer.MyListStats(Stats);
+  end;
+
+ //Errors => exit
+  if res.code <> MYLIST_STATS then begin
+    writeln(res.ToString);
+    exit;
+  end;
+
+  writeln('Mylist Stats:');
+  writeln('  Total animes: ', Stats.cAnimes, ', episodes: ', Stats.cEps,
+    ', files: ', Stats.cFiles, '.');
+  if Stats.cSizeOfFiles < 1024 then
+    writeln('  Total size of files: ', Stats.cSizeOfFiles, 'Mb.')
+  else
+    if Stats.cSizeOfFiles < 1024 * 1024 then
+      writeln('  Total size of files: ', Trunc(Stats.cSizeOfFiles/1024), 'Gb (',
+        Stats.cSizeOfFiles, 'Mb).');
+  writeln('  Added animes: ', Stats.cAddedAnimes, ', episodes: ', Stats.cAddedEps,
+    ', files: ', Stats.cAddedFiles, ', groups: ', Stats.cAddedGroups, '.');
+  writeln('  Leech: ', Stats.pcLeech, '%, glory: ', Stats.pcGlory, '%.');
+  writeln('  Viewed eps: ', Stats.cViewedEps, ', of anidb: ', Stats.pcViewedOfDb,
+    '%, mylist of anidb: ', Stats.pcMylistOfDb, '%, vieved of mylist: ',
+    Stats.pcViewedOfMylist, '%.');
+  writeln('  Votes: ', Stats.cVotes, ', reviews: ', Stats.cReviews, '.');
+end;
+
+
+////////////////////////////////////////////////////////////////////////////////
 
 {$REGION 'File enumeration'}
 type
@@ -448,6 +584,8 @@ begin
 end;
 {$ENDREGION}
 
+////////////////////////////////////////////////////////////////////////////////
+
 function FileStateFromStr(s: string): integer;
 begin
   if SameText(s, 'unknown') then
@@ -483,6 +621,13 @@ begin
   end;
 end;
 
+function FileExt(fn: string): string;
+begin
+  Result := ExtractFileExt(fn);
+ //Delete starting '.'
+  if Result <> '' then
+    Result := RightStr(Result, Length(Result)-1);
+end;
 
 
 procedure Execute();
@@ -654,6 +799,10 @@ begin
 
    //Process files
     for file_name in files do begin
+     //We do not check extension filter with hashes.
+     //I think this is usually what you want.
+
+     //Perform operation
       Exec_Hash(file_name);
       writeln('');
     end;
@@ -663,7 +812,7 @@ begin
   if SameText(main_command, 'mylistadd') then begin
    //If no files specified
     if filemask_cnt = 0 then begin
-      writeln('Illegal syntax');
+      writeln('No files specified.');
       ShowUsage;
       exit;
     end;
@@ -678,6 +827,14 @@ begin
    //Process files
     SetLength(failed_files, 0);
     for file_name in files do try
+     //Check extension filter
+      if not ProgramOptions.AllowedExtension(FileExt(file_name)) then begin
+        if ProgramOptions.Verbose then
+          writeln(ExtractFileName(file_name)+': disabled extension, ignoring.');
+        continue;
+      end;
+
+     //Perform operation
       if not Exec_MyListAdd(file_name, @AnidbOptions, @ProgramOptions) then
         AddFile(failed_files, file_name);
       writeln('');
@@ -689,7 +846,7 @@ begin
         writeln(E.Classname + ': ' + E.Message);
 
        //Either stop + output files, or continue, as configured
-        if ProgramOptions.DontStopOnErrors then
+        if ProgramOptions.DontStopOnErrors and not (E is ECritical) then
           AddFile(failed_files, file_name)
         else begin
           writeln('Summary up to error:');
@@ -705,6 +862,26 @@ begin
       OutputSummary(failed_files);
 
   end else
+
+ //Myliststats
+  if SameText(main_command, 'myliststats') then begin
+   //Files are specified
+    if filemask_cnt <> 0 then begin
+      writeln('This command does not support specifying files.');
+      exit;
+    end;
+
+   //Execute
+    try
+      Exec_MyListStats();
+    except
+      on E: Exception do begin
+       //Output error
+        writeln(E.Classname + ': ' + E.Message);
+      end;
+    end;
+  end else
+
 
  //Unknown command
   begin
