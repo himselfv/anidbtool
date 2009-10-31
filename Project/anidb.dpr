@@ -133,8 +133,6 @@ begin
     AnidbServer.LocalPort := FSessionPort;
   end;
 
-  AnidbServer.Connect(Config.Values['Host'], FPort);
-
  //Open file database
   FileDb := TFileDb.Create(FileDbFilename);
 
@@ -159,6 +157,9 @@ begin
   TryStrToBool(Config.Values['Verbose'], ProgramOptions.Verbose);
   ProgramOptions.IgnoreExtensions := Config.Values['IgnoreExtensions'];
   ProgramOptions.UseOnlyExtensions := Config.Values['UseOnlyExtensions'];
+  
+ //Connect to anidb (well, formally; UDP has no connections in practice)
+  AnidbServer.Connect(Config.Values['Host'], FPort);
 end;
 
 procedure App_SaveSessionInfo;
@@ -197,18 +198,18 @@ begin
       exit;
     end;
 
-   //Verify that it's not extSOMETHINGELSE,bsd,csd
+   //Verify that this is not extSOMETHINGELSE,bsd,csd
     if list[Length(ext)+1]=',' then begin
       Result := true;
       exit;
     end;
 
-   //No "Result := false" because we have failed with the first occurence,
-   //but still might find the correct one later
+   //No "Result := false" because although the extension at the beginning
+   //of the string doesn't fit, we might still find another match later.
   end;
 
   if EndsText(ext, list) then begin
-   //Not checkng for simple match, already checked in StartsText
+   //Not checking for a simple match, already checked that in StartsText
 
    //Verify that it's not asd,bsd,SOMETHINGELSEext   
     if list[Length(list)-Length(ext)]=',' then begin
@@ -654,19 +655,28 @@ begin
     exit;
   end;
 
-  main_command := paramstr(1);
+  main_command := ''; //by default the command is not set
   SetLength(files, 0);
   filemask_cnt := 0;
 
  //Parse switches
-  i := 2;
+  i := 1;
   while i <= ParamCount do begin
     param := paramstr(i);
 
-   //If it's not switch then it's file/directory mask. Add it to file list.
+   //If it's not a switch then it's a command or a mask
     if not IsSwitch(param) then begin
-      EnumFiles2(param, ProgramOptions.ParseSubdirs, files);
-      Inc(filemask_cnt);
+     //Treat first non-switch as a command.
+      if main_command='' then
+        main_command := param
+      else
+      
+     //Later we might write a different non-switch-handling code here.
+     //For now everything that's not a switch nor a command is a file/directory mask.
+      begin
+        EnumFiles2(param, ProgramOptions.ParseSubdirs, files);
+        Inc(filemask_cnt);
+      end;
     end else
 
    //Available switches
