@@ -11,7 +11,7 @@ type
     procedure Load;
   public
     constructor Create(LockFile: UniString);
-    destructor Destroy;
+    destructor Destroy; override;
     procedure Save;
   end;
 
@@ -23,7 +23,7 @@ begin
   hFile := CreateFileW(PWideChar(LockFile),
     GENERIC_READ or GENERIC_WRITE,
     0, {exclusive access}
-    nil, 0, OPEN_ALWAYS, 0);
+    nil, OPEN_ALWAYS, 0, 0);
   if hFile=INVALID_HANDLE_VALUE then
     RaiseLastOsError();
   Load;

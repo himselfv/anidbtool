@@ -3,7 +3,10 @@ program anidb;
 {$APPTYPE CONSOLE}
 
 uses
-  SysUtils, Classes, Windows, StrUtils,
+  SysUtils,
+  Classes,
+  Windows,
+  StrUtils,
   AnidbConnection in 'AnidbConnection.pas',
   AnidbConsts in 'AnidbConsts.pas',
   FileInfo in 'FileInfo.pas',
@@ -11,7 +14,8 @@ uses
   md4,
   ed2k,
   UniStrUtils,
-  DirectoryEnum;
+  DirectoryEnum,
+  ParallelEd2k in 'ParallelEd2k.pas';
 
 type
   TAnidbOptions = record
@@ -55,6 +59,8 @@ var
 
   ProgramOptions: TProgramOptions;
   AnidbOptions: TAnidbOptions;
+
+  Hasher: TEd2kHasher;
 
 procedure ShowUsage;
 begin
@@ -133,6 +139,9 @@ begin
     AnidbServer.LocalPort := FSessionPort;
   end;
 
+ //Create hasher
+  Hasher := TParallelEd2kHasher.Create;
+
  //Open file database
   FileDb := TFileDb.Create(FileDbFilename);
 
@@ -182,6 +191,7 @@ begin
   App_SaveSessionInfo;
   FreeAndNil(FileDb);
   FreeAndNil(SessionInfo);
+  FreeAndNil(Hasher);
   FreeAndNil(Config);
   FreeAndNil(Tool);
 end;
@@ -248,125 +258,55 @@ end;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-function GetFileSizeEx(h: THandle): int64;
-var sz_low: cardinal;
-  err: integer;
-begin
-  Result := 0;
-  sz_low := GetFileSize(h, pointer(cardinal(@Result) + 4));
-  if sz_low = INVALID_FILE_SIZE then begin
-    err := GetLastError();
-    if err <> 0 then
-      RaiseLastOsError(err);
+type
+  TPartialHashChecker = class
+  public
+    f: PFileInfo;
+    constructor Create;
+    procedure OnLeadPartDone(Sender: TEd2kHasher; Lead: MD4Digest);
   end;
-  Result := Result + sz_low;
+
+constructor TPartialHashChecker.Create;
+begin
+  f := nil;
 end;
 
-//Also returns PFileInfo if instructed to use it OR update it through program options
+procedure TPartialHashChecker.OnLeadPartDone(Sender: TEd2kHasher; Lead: MD4Digest);
+begin
+ //If configured to, try to use hash cache
+  f := FileDb.FindByLead(lead);
+  if Assigned(f) then
+    Sender.Terminated := true;
+end;
+
 procedure HashFile(fname: string; out size: int64; out ed2k: MD4Digest; out f: PFileInfo);
-var h: THandle;
-  c: Ed2kContext;
-
-  this_chunk_size: integer;
-  bytesRead: cardinal;
-
-  buf: pbyte;
-  buf_size: cardinal;
-
-  full_chunk_cnt: integer;
-  lead: MD4Digest;
-
-  PartialHashStopFlag: boolean;
+var Checker: TPartialHashChecker;
 begin
   writeln('Hashing '+fname+'...');
-  f := nil;
 
-  h := CreateFile(pchar(fname), GENERIC_READ, FILE_SHARE_READ, nil,
-    OPEN_EXISTING, 0, 0);
-  if (h=INVALID_HANDLE_VALUE) then
-    RaiseLastOsError;
-
-  Ed2kInit(c);
-  full_chunk_cnt := 0;
-
- //Use only divisors of ED2K_CHUNK_SIZE!
-  buf_size := 4096;
-  GetMem(buf, buf_size);
-
+  Checker := TPartialHashChecker.Create;
   try
-    PartialHashStopFlag := false;
-    this_chunk_size := 0;
-    repeat
-      if not ReadFile(h, buf^, buf_size, bytesRead, nil) then
-        RaiseLastOsError;
+    Hasher.OnLeadPartDone := Checker.OnLeadPartDone;
+    Hasher.HashFile(fname);
+    Hasher.OnLeadPartDone := nil;
 
-      Ed2kChunkUpdate(c, buf, bytesRead);
-      Inc(this_chunk_size, bytesRead);
-
-      if this_chunk_size >= ED2K_CHUNK_SIZE then begin
-       //If this is the first chunk
-        if full_chunk_cnt = 0 then begin
-         //Calculate lead hash
-          Ed2kNextChunk2(c, lead);
-
-         //If configured to, try to use hash cache
-          f := FileDb.FindByLead(lead);
-          PartialHashStopFlag := Assigned(f);
-        end
-        else //we don't care
-          Ed2kNextChunk(c);
-
-        this_chunk_size := 0;
-        Inc(full_chunk_cnt);
-      end;
-    until (bytesRead < buf_Size) or PartialHashStopFlag;
-
-   //Even with PartialHashStop we need to finalize Ed2k calculation anyway
-    Ed2kFinal(c, ed2k);
+    Size := Hasher.FileSize;
 
    //If we have stopped hashing because we encountered a partial hash hit, use stored hash.
-    if PartialHashStopFlag then begin
+    if Checker.f<>nil then begin
+      f := Checker.f;
       if ProgramOptions.Verbose then
         writeln('Partial hash found, using cache.');
       ed2k := f.ed2k;
+    end else begin
+      ed2k := Hasher.ed2k;
+      f := FileDb.AddNew;
+      f.size := Hasher.FileSize;
+      f.ed2k := Hasher.Ed2k;
+      f.lead := Hasher.Lead;
     end;
-
-   //If on the other hand we haven't got even one full chunk, we don't have lead yet
-    if full_chunk_cnt < 1 then
-      lead := ed2k;
-
-   //Get file size. We could have used cached data with PartialHashStop,
-   //but let's not risk more than neccessary.
-    size := GetFileSizeEx(h);
-
-   //Nothing to update when it's PartialHashStop, we just read the same data
-    if ProgramOptions.UpdateCache and not PartialHashStopFlag then begin
-      f := FileDb.FindByLead(lead);
-      if f=nil then begin
-        f := FileDb.AddNew;
-        f.size := size;
-        f.ed2k := ed2k;
-        f.lead := lead;
-        if ProgramOptions.Verbose then
-          writeln('Cached hash added.');
-      end else begin
-       //No point in updating the data and marking it for save if it's already fine
-        if (f.size <> size)
-        or not SameMd4(f.ed2k, ed2k) then begin
-          f.size := size;
-          f.ed2k := ed2k;
-          FileDb.Changed;
-          if ProgramOptions.Verbose then
-            writeln('Cached hash updated.');
-        end;
-      end;
-    end;
-
-   //Rememer, we must return f if we're in UpdateCache mode.
-
   finally
-    FreeMem(buf);
-    CloseHandle(h);
+    FreeAndNil(Checker);
   end;
 end;
 
@@ -395,6 +335,7 @@ var
 begin
   if not AnidbServer.LoggedIn then begin
     AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
+    App_SaveSessionInfo; {in case we're interrupted later}
     writeln('Logged in');
   end;
 
@@ -430,6 +371,7 @@ begin
     writeln('Session is obsolete, restoring...');
     AnidbServer.SessionKey := '';
     AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
+    App_SaveSessionInfo; {in case we're interrupted later}
     writeln('Logged in');
 
    //Retry
@@ -480,6 +422,7 @@ begin
     writeln('Session is obsolete, restoring...');
     AnidbServer.SessionKey := '';
     AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
+    App_SaveSessionInfo; {in case we're interrupted later}
     writeln('Logged in');
 
    //Retry
@@ -817,7 +760,6 @@ begin
     end;
   end else
 
-
  //Unknown command
   begin
     writeln('Illegal command: '+paramstr(1));
@@ -825,9 +767,15 @@ begin
     exit;
   end;
 
+{$IFDEF HASH_STATS}
+  writeln('TotalTimeHashing: ', Hasher.TotalTime);
+  writeln('ReadingTime: ', Hasher.ReadingTime);
+  writeln('HashingTime: ', Hasher.HashingTime);
+{$ENDIF}
 end;
 
 begin
+  IsMultithread := true;
   try
     App_Init();
     try
@@ -835,7 +783,7 @@ begin
     finally
       App_Deinit();
     end;
-    
+
   except
     on E: Exception do
       writeln(E.ClassName + ': ' + E.Message);

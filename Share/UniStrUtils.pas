@@ -2,7 +2,7 @@ unit UniStrUtils;
 {$WEAKPACKAGEUNIT ON}
 
 interface
-uses SysUtils, WideStrUtils;
+uses SysUtils, StrUtils, Windows, WideStrUtils;
 
 (*
  В библиотеке введён дополнительный тип: UniString.
@@ -367,7 +367,6 @@ type
  {$ENDIF}
 
 implementation
-uses StrUtils, Windows;
 
 ////////////////////////////////////////////////////////////////////////////////
 {$IFDEF UNICODE}

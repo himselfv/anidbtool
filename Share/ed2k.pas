@@ -44,7 +44,7 @@ end;
 //Allows to get current chunk md4, in case you need it.
 procedure Ed2kNextChunk2( var Context: Ed2kContext; out Digest: MD4Digest );
 begin
-  MD4Final( Context.Md4, Digest );
+  MD4Final(Context.Md4, Digest);
   with Context do begin
     SetLength(chunks, Length(chunks) + 1);
     chunks[Length(chunks)-1] := Digest;

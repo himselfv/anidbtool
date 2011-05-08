@@ -20,12 +20,13 @@
 			<Base>true</Base>
 		</PropertyGroup>
 		<PropertyGroup Condition="'$(Base)'!=''">
+			<DCC_Define>HASH_STATS;$(DCC_Define)</DCC_Define>
 			<DCC_UnitSearchPath>..\Share\;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-			<DCC_DependencyCheckOutputName>E:\Projects\BDS2006\DW32\anidb\#LocalRelease\anidb.exe</DCC_DependencyCheckOutputName>
+			<DCC_DependencyCheckOutputName>..\Release\anidb.exe</DCC_DependencyCheckOutputName>
 			<DCC_ImageBase>00400000</DCC_ImageBase>
 			<DCC_UnitAlias>WinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE;$(DCC_UnitAlias)</DCC_UnitAlias>
 			<DCC_Platform>x86</DCC_Platform>
-			<DCC_ExeOutput>E:\Projects\BDS2006\DW32\anidb\#LocalRelease</DCC_ExeOutput>
+			<DCC_ExeOutput>..\Release</DCC_ExeOutput>
 			<DCC_K>false</DCC_K>
 			<DCC_N>true</DCC_N>
 			<DCC_S>false</DCC_S>
@@ -50,6 +51,7 @@
 			<DCCReference Include="AnidbConsts.pas"/>
 			<DCCReference Include="FileInfo.pas"/>
 			<DCCReference Include="SessionLock.pas"/>
+			<DCCReference Include="ParallelEd2k.pas"/>
 			<BuildConfiguration Include="Base">
 				<Key>Base</Key>
 			</BuildConfiguration>
@@ -72,7 +74,7 @@
 						<Source Name="MainSource">anidb.dpr</Source>
 					</Source>
 					<Parameters>
-						<Parameters Name="RunParams">myliststats</Parameters>
+						<Parameters Name="RunParams">hash /s &quot;E:\Anime\Heroic Age\*.*&quot;</Parameters>
 						<Parameters Name="UseLauncher">False</Parameters>
 						<Parameters Name="LoadAllSymbols">True</Parameters>
 						<Parameters Name="LoadUnspecifiedSymbols">False</Parameters>
