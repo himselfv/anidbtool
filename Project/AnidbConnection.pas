@@ -42,7 +42,7 @@ type
    //Used for select()
     fdRead: TFdSet;
 
-    function HostnameToAddr(name: string; out addr: in_addr): boolean;
+    function HostnameToAddr(name: AnsiString; out addr: in_addr): boolean;
 
   private
    //Buffers for reading things out
@@ -56,13 +56,13 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    procedure Connect(AHost: string; APort: word);
+    procedure Connect(AHost: AnsiString; APort: word);
     procedure Disconnect;
     function Connected: boolean;
 
-    procedure Send(s: string);
-    function Recv(out s: string; Timeout: cardinal = INFINITE): boolean;
-    function Exchange(inp: string; Timeout: cardinal = INFINITE; RetryCount: integer = 1): string;
+    procedure Send(s: AnsiString);
+    function Recv(out s: AnsiString; Timeout: cardinal = INFINITE): boolean;
+    function Exchange(inp: AnsiString; Timeout: cardinal = INFINITE; RetryCount: integer = 1): AnsiString;
 
     property HostAddr: in_addr read FHostAddr;
     property Port: word read FPort;
@@ -71,12 +71,12 @@ type
 
 
 type
-  TStringArray=array of string;
-  PStringArray=^TStringArray;
+  TAnsiStringArray=array of AnsiString;
+  PAnsiStringArray=^TAnsiStringArray;
 
   TAnidbResult = record
     code: integer;
-    msg: string;
+    msg: AnsiString;
     function ToString: string;
   end;
   PAnidbResult = ^TAnidbResult;
@@ -116,7 +116,7 @@ type
     FTimeout: cardinal;
     FRetryCount: integer;    
 
-    FSessionKey: string;
+    FSessionKey: AnsiString;
 
    //Date and time when last command was issued.
     FLastCommandTime: TDatetime;
@@ -124,18 +124,18 @@ type
     FOnShortTimeout: TShortTimeoutEvent;
     FOnServerBusy: TServerBusyEvent;
     FOnNoAnswer: TNoAnswerEvent;
-    function Exchange_int(cmd, params: string; var outp: TStringArray): TAnidbResult;
+    function Exchange_int(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
   public
     constructor Create;
 
-    function Exchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
-    function SessionExchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
+    function Exchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
+    function SessionExchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
 
     property Timeout: cardinal read FTimeout write FTimeout;
     property RetryCount: integer read FRetryCount write FRetryCount;
 
    //Session-related cookies
-    property SessionKey: string read FSessionKey write FSessionKey;
+    property SessionKey: AnsiString read FSessionKey write FSessionKey;
     property LastCommandTime: TDatetime read FLastCommandTime write FLastCommandTime;
 
     property OnShortTimeout: TShortTimeoutEvent read FOnShortTimeout write FOnShortTimeout;
@@ -143,20 +143,20 @@ type
     property OnNoAnswer: TNoAnswerEvent read FOnNoAnswer write FOnNoAnswer;
 
   protected //Login
-    FClient: string;
-    FClientVer: string;
-    FProtoVer: string;  
+    FClient: AnsiString;
+    FClientVer: AnsiString;
+    FProtoVer: AnsiString;
   public
-    function Login(AUser: string; APass: string): TAnidbResult;
+    function Login(AUser: AnsiString; APass: AnsiString): TAnidbResult;
     procedure Logout;
     function LoggedIn: boolean;
 
-    property Client: string read FClient write FClient;
-    property ClientVer: string read FClientVer write FClientVer;
-    property ProtoVer: string read FProtoVer write FProtoVer;
+    property Client: AnsiString read FClient write FClient;
+    property ClientVer: AnsiString read FClientVer write FClientVer;
+    property ProtoVer: AnsiString read FProtoVer write FProtoVer;
 
   public //Commands
-    function MyListAdd(size: int64; ed2k: string; state: integer;
+    function MyListAdd(size: int64; ed2k: AnsiString; state: integer;
       viewed: boolean; edit: boolean): TAnidbResult;
     function MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;
   end;
@@ -198,18 +198,18 @@ begin
   bufsz := 0;
 end;
 
-function TUdpConnection.HostnameToAddr(name: string; out addr: in_addr): boolean;
+function TUdpConnection.HostnameToAddr(name: AnsiString; out addr: in_addr): boolean;
 var host_ent: PHostEnt;
 begin
  //Try to decode host address and port
-  addr.S_addr := inet_addr(pchar(name));
-  if (FHostAddr.S_addr <> INADDR_NONE) then begin
+  addr.S_addr := inet_addr(PAnsiChar(name));
+  if (FHostAddr.S_addr <> integer(INADDR_NONE)) then begin
     Result := true;
     exit;
   end;
 
  //Else we can just try to use this as host name
-  host_ent := gethostbyname(pchar(name));
+  host_ent := gethostbyname(PAnsiChar(name));
   if (host_ent = nil) or (host_ent.h_addrtype <> AF_INET) then begin
     Result := false;
     exit;
@@ -219,7 +219,7 @@ begin
   Result := true;
 end;
 
-procedure TUdpConnection.Connect(AHost: string; APort: word);
+procedure TUdpConnection.Connect(AHost: AnsiString; APort: word);
 var hr: integer;
   addr: sockaddr_in;
 begin
@@ -232,7 +232,7 @@ begin
   FPort := htons(APort);
   if not HostnameToAddr(AHost, FHostAddr) then begin
     WsaCleanup;
-    raise ESocketError.Create('Cannot decode hostname/find host '+AHost+'.');
+    raise ESocketError.Create('Cannot decode hostname/find host '+string(AHost)+'.');
   end;
 
  //Create socket
@@ -309,13 +309,13 @@ begin
   FLocalPort := Value;
 end;
 
-procedure TUdpConnection.Send(s: string);
+procedure TUdpConnection.Send(s: AnsiString);
 begin
   if not (WinSock.send(FSocket, s[1], Length(s), 0)=Length(s)) then
     raise ESocketError.Create(WsaGetLastError, 'send()');
 end;
 
-function TUdpConnection.Recv(out s: string; Timeout: cardinal): boolean;
+function TUdpConnection.Recv(out s: AnsiString; Timeout: cardinal): boolean;
 var sel: integer;
   tm: Timeval;
   sz: integer;
@@ -382,7 +382,7 @@ begin
   end;
 end;
 
-function TUdpConnection.Exchange(inp: string; Timeout: cardinal; RetryCount: integer): string;
+function TUdpConnection.Exchange(inp: AnsiString; Timeout: cardinal; RetryCount: integer): AnsiString;
 var i: integer;
   done: boolean;
 begin
@@ -402,16 +402,16 @@ end;
 
 function TAnidbResult.ToString: string;
 begin
-  Result := IntToStr(code) + ' ' + msg;
+  Result := IntToStr(code) + ' ' + string(msg);
 end;
 
 constructor EAnidbError.Create(res: TAnidbResult);
 begin
  //We do not use res.ToString here since we want special treatment.
-  inherited Create('Anidb error '+IntToStr(res.code) + ': ' + res.msg);
+  inherited Create('Anidb error '+IntToStr(res.code) + ': ' + string(res.msg));
 end;
 
-function SplitStr(s: string; sep: char): TStringArray;
+function SplitStr(s: AnsiString; sep: AnsiChar): TAnsiStringArray;
 var sepcnt, i: integer;
   last_sep: integer;
 begin
@@ -445,8 +445,8 @@ begin
   FLastCommandTime := 0;
 end;
 
-function TAnidbConnection.Exchange_int(cmd, params: string; var outp: TStringArray): TAnidbResult;
-var str: string;
+function TAnidbConnection.Exchange_int(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
+var str: AnsiString;
   tm: cardinal;
   i: integer;
 begin
@@ -469,7 +469,7 @@ begin
   str := outp[0];
  //At least code should be there
   if (Length(str) < 3)
-  or not TryStrToInt(str[1] + str[2] + str[3], Result.code) then
+  or not TryStrToInt(string(str[1] + str[2] + str[3]), Result.code) then
     raise ESocketError.Create('Illegal answer from server');
 
   if (Result.Code=LOGIN_ACCEPTED)
@@ -489,20 +489,20 @@ begin
    //The remainder is the message
     if (i <= Length(str)) then
      //str[i] is the separator
-      Result.msg := pchar(@str[i+1])
+      Result.msg := PAnsiChar(@str[i+1])
     else
       Result.msg := '';
 
   end else
    //Default mode: everything to the right is message
     if Length(str) > 4 then
-      Result.msg := pchar(@str[5])
+      Result.msg := PAnsiChar(@str[5])
     else
       Result.msg := '';
 end;
 
 //Automatically retries on SERVER_BUSY or on no answer.
-function TAnidbConnection.Exchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
+function TAnidbConnection.Exchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
 var retries_left: integer;
   wait_interval: integer;
 begin
@@ -550,7 +550,7 @@ begin
   raise ECritical.Create('Anidb server is not accessible. Impossible to continue.');
 end;
 
-function TAnidbConnection.SessionExchange(cmd, params: string; var outp: TStringArray): TAnidbResult;
+function TAnidbConnection.SessionExchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
 begin
   if params <> '' then
     params := params + '&s='+FSessionKey
@@ -559,8 +559,8 @@ begin
   Result := Exchange(cmd, params, outp);
 end;
 
-function TAnidbConnection.Login(AUser: string; APass: string): TAnidbResult;
-var ans: TStringArray;
+function TAnidbConnection.Login(AUser: AnsiString; APass: AnsiString): TAnidbResult;
+var ans: TAnsiStringArray;
 begin
   Result := Exchange('AUTH',
     'user='+AUser+'&'+
@@ -576,7 +576,7 @@ begin
 end;
 
 procedure TAnidbConnection.Logout;
-var ans: TStringArray;
+var ans: TAnsiStringArray;
   res: TAnidbResult;
 begin
   res := SessionExchange('LOGOUT', '', ans);
@@ -592,7 +592,7 @@ begin
 end;
 
 
-function AnidbBool(value: boolean): string; inline;
+function AnidbBool(value: boolean): AnsiString; inline;
 begin
   if value then
     Result := '1'
@@ -600,9 +600,9 @@ begin
     Result := '0';
 end;
 
-function TAnidbConnection.MyListAdd(size: int64; ed2k: string; state: integer;
+function TAnidbConnection.MyListAdd(size: int64; ed2k: AnsiString; state: integer;
   viewed: boolean; edit: boolean): TAnidbResult;
-var ans: TStringArray;
+var ans: TAnsiStringArray;
 begin
   Result := SessionExchange('MYLISTADD',
     'size='+IntToStr(size)+'&'+
@@ -614,8 +614,8 @@ begin
 end;
 
 function TAnidbConnection.MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;
-var ans: TStringArray;
-  vals: TStringArray;
+var ans: TAnsiStringArray;
+  vals: TAnsiStringArray;
 begin
   Result := SessionExchange('MYLISTSTATS', '', ans);
   if Result.code = MYLIST_STATS then begin

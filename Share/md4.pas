@@ -21,9 +21,9 @@ type
 
   MD4Digest = array[0..15] of byte;
 
-procedure MD4Init( var Context: MD4Context );
-procedure MD4Final( var Context: MD4Context; var Digest: MD4Digest );
-procedure MD4Update( var Context: MD4Context; lpData: pchar; wwDataSize: int64 );
+procedure MD4Init(var Context: MD4Context);
+procedure MD4Final(var Context: MD4Context; var Digest: MD4Digest);
+procedure MD4Update(var Context: MD4Context; lpData: PAnsiChar; wwDataSize: int64);
 
 function SameMd4(a, b: MD4Digest): boolean; inline;
 function Md4ToString(md4: MD4Digest): string;
@@ -162,7 +162,7 @@ begin
   end;
 end;
 
-procedure MD4Update( var Context: MD4Context; lpData: pchar; wwDataSize: int64 );
+procedure MD4Update( var Context: MD4Context; lpData: PAnsiChar; wwDataSize: int64 );
 begin
   with Context do begin
     Inc(wwSize, wwDataSize);
