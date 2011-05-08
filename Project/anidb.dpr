@@ -6,9 +6,12 @@ uses
   SysUtils, Classes, Windows, StrUtils,
   AnidbConnection in 'AnidbConnection.pas',
   AnidbConsts in 'AnidbConsts.pas',
-  md4 in '..\..\#Units\Crypt\Hashes\md4.pas',
-  ed2k in '..\..\#Units\Crypt\Hashes\ed2k.pas',
-  FileInfo in 'FileInfo.pas';
+  FileInfo in 'FileInfo.pas',
+  SessionLock in 'SessionLock.pas',
+  md4,
+  ed2k,
+  UniStrUtils,
+  DirectoryEnum;
 
 type
   TAnidbOptions = record
@@ -41,10 +44,9 @@ type
 
 var
   Config: TStringList;
-  SessionInfo: TStringList;
+  SessionInfo: TSessionLock;
 
   ConfigFilename: string;
-  SessionFilename: string;
   FileDbFilename: string;
 
   Tool: TAnidbTool;
@@ -52,7 +54,7 @@ var
   FileDb: TFileDb;
 
   ProgramOptions: TProgramOptions;
-  AnidbOptions: TAnidbOptions;    
+  AnidbOptions: TAnidbOptions;
 
 procedure ShowUsage;
 begin
@@ -82,25 +84,20 @@ var FPort: integer;
   FLastCommandTime: TDatetime;
   FSessionPort: integer;
   FRetryCount: integer;
+  SessionFilename: string;
 begin
   Tool := TAnidbTool.Create;
 
   ConfigFilename := ChangeFileExt(paramstr(0), '.cfg');
   SessionFilename := ExtractFilePath(paramstr(0)) + 'session.cfg';
   FileDbFilename := ExtractFilePath(paramstr(0)) + 'file.db';
-{$IFDEF DEBUG}
-  HashlistFilename := ExtractFilePath(paramstr(0)) + 'hash.lst';
-{$ENDIF}
 
+ //Read config
   if not FileExists(ConfigFilename) then
     raise Exception.Create('Configuration file not found');
 
   Config := TStringList.Create();
   Config.LoadFromFile(ConfigFilename);
-
-  SessionInfo := TStringList.Create();
-  if FileExists(SessionFilename) then
-    SessionInfo.LoadFromFile(SessionFilename);
 
   if not TryStrToInt(Config.Values['Port'], FPort) then
     raise Exception.Create('Incorrect "Port" value set in config.');
@@ -110,6 +107,9 @@ begin
 
   if not TryStrToInt(Config.Values['RetryCount'], FRetryCount) then
     raise Exception.Create('Incorrect "RetryCount" value set in config.');
+
+ //Lock session
+  SessionInfo := TSessionLock.Create(SessionFilename);
 
  //Create anidb client
   AnidbServer := TAnidbConnection.Create();
@@ -174,7 +174,7 @@ begin
     SessionInfo.Values['SessionPort'] := '';
   end;
 
-  SessionInfo.SaveToFile(SessionFilename);
+  SessionInfo.Save;
 end;
 
 procedure App_Deinit;
@@ -510,81 +510,6 @@ begin
   writeln('  Votes: ', Stats.cVotes, ', reviews: ', Stats.cReviews, '.');
 end;
 
-
-////////////////////////////////////////////////////////////////////////////////
-
-{$REGION 'File enumeration'}
-type
-  TStringArray = array of string;
-
-procedure AddFile(var files: TStringArray; fname: string); inline;
-begin
-  SetLength(files, Length(files)+1);
-  files[Length(files)-1] := fname;
-end;
-
-procedure EnumFiles_in(dir, mask: string; subdirs: boolean; var files: TStringArray);
-var SearchRec: TSearchRec;
-  res: integer;
-begin
- //First we look through files
-  res := FindFirst(dir + '\' + mask, faAnyFile and not faDirectory, SearchRec);
-  while (res = 0) do begin
-    AddFile(files, dir + '\' + SearchRec.Name);
-    res := FindNext(SearchRec);
-  end;
-  SysUtils.FindClose(SearchRec);
-
- //If no subdir scan is planned, then it's over.
-  if not subdirs then exit;
-
- //Else we go through subdirectories
-  res := FindFirst(dir + '\' + '*.*', faAnyFile, SearchRec);
-  while (res = 0) do begin
-   //Ignore . and ..
-    if (SearchRec.Name='.')
-    or (SearchRec.Name='..') then begin
-    end else
-
-   //Default - directory
-    if ((SearchRec.Attr and faDirectory) = faDirectory) then
-      EnumFiles_in(dir + '\' + SearchRec.Name, mask, subdirs, files);
-
-    res := FindNext(SearchRec);
-  end;
-  SysUtils.FindClose(SearchRec);
-end;
-
-procedure EnumFiles2(fname: string; subdirs: boolean; var files: TStringArray);
-var dir: string;
- mask: string;
-begin
- //Single file => no scan
-  if FileExists(fname) then begin
-    AddFile(files, fname);
-    exit;
-  end;
-
-  if DirectoryExists(fname) then begin
-    dir := fname;
-    mask := '*.*';
-  end else begin
-    dir := ExtractFilePath(fname);
-    mask := ExtractFileName(fname);
-    if mask='' then
-      mask := '*.*';
-  end;
-
-  EnumFiles_in(dir, mask, subdirs, files);
-end;
-
-function EnumFiles(fname: string; subdirs: boolean): TStringArray;
-begin
-  SetLength(Result, 0);
-  EnumFiles2(fname, subdirs, Result);
-end;
-{$ENDREGION}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 function FileStateFromStr(s: string): integer;
@@ -674,7 +599,7 @@ begin
      //Later we might write a different non-switch-handling code here.
      //For now everything that's not a switch nor a command is a file/directory mask.
       begin
-        EnumFiles2(param, ProgramOptions.ParseSubdirs, files);
+        EnumAddFiles(param, ProgramOptions.ParseSubdirs, files);
         Inc(filemask_cnt);
       end;
     end else
