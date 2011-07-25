@@ -7,13 +7,14 @@ Features
 ===================
 - Minimal number of requests to anidb (basically, 1 UDP packet per file, login information is preserved between application runs)
 - Strict compliance with AniDB UDP API short-term messaging timeout rules. No message is sent in less than two seconds after the previous one. Even if you restart the application.
+- Hash and file caches (no requests and rehashings for files you've added already). 
+- Kind of optimized for multithreading (there's only so much you can do with AniDB timeouts though). 
 
 
 Issues
 ===================
 Last-minute issues:
-- DO NOT run several instances of anidb tool at once. NEVER. EVER. DO THIS. Just don't, okay?
-- Anidb tool does not handle unicode characters in file names well. Lovers of As with accents, Us with tildes and everything else that does not fit into the default system code page, beware.
+- None as of yet.
 
 
 Syntax
@@ -26,6 +27,9 @@ Hashes file and prints it's ed2k hash and file size in bytes.
 
 > mylistadd <filename> [operation flags] [/s] [filename] [filename]...
 Hashes file and adds it to anidb.
+
+> myliststats
+Prints your AniDB stats (anime count, size, etc).
 
 Here:
 - <filename> stands for file or directory name or file mask (for example, K:\Anime\*.avi)
