@@ -38,6 +38,10 @@ Here:
 Operation flags control the operation to perform on the files:
 - /state <state> marks every parsed file with this storage state. Available states: unknown, hdd, cd, deleted.
 - /watched marks every parsed file as watched.
+- /watchdate sets the date you watched this episode/series
+- /source <source> sets file source (any string)
+- /storage <storage> sets file storage (any string)
+- /other <other> sets other remarks (any string)
 - /edit[mode] activates edit mode. In edit mode files will me MYLIST EDIT-ed by default instead of being MYLIST ADD-ed. Read more in the configuration section.
 - /-edit[mode] disables edit mode if it have been enabled through configuration file.
 
@@ -54,6 +58,8 @@ Configuration flags are used to redefine/change settings:
 - /-ignoreunchangedfiles or /forceunchangedfiles forces requests to Anidb even if the file state wasn't chagned since last time.
 - /verbose enables printing additional information which isn't really needed but can be helpful when solving problems.
 - /-verbose suppresses verbose log.
+
+If you're editing a file, only those flags you specify will be changed. The rest will remain as they were.
 
 
 Configuration
@@ -139,18 +145,18 @@ If, on the other hand, you want to change the file data, for example, to mark th
 
 Naturally, you might want to always MYLIST EDIT files instead of MYLIST ADDing them, because that way you transparently update those files you have already added before. But there's a trick. Documentation lies: in fact MYLIST EDIT does not add new files, although it certainly reports them as "MYLIST ENTRY EDITED". In other words, with /edit enabled you will only edit those files you have already added and will not add those you haven't added yet. What's worse, you won't even know which files were successfully edited, and which were ignored because they weren't in MYLIST: they will all just return "MYLIST ENTRY EDITED".
 
-The solution is to use /autoedit or set AutoEditExisting in the configuration file to True. In this case anidb tool will first issue a MYLIST ADD request for every file, and if it returns "FILE ALREADY IN MYLIST", another request to MYLIST EDIT the file will be issued. This, of course, comes with a cost of having an additional two second wait delay for every file you re-send to anidb.
+The solution is to use /autoedit or set AutoEditExisting in the configuration file to True. In this case anidb tool will first issue a MYLIST ADD request for every file, and if it returns "FILE ALREADY IN MYLIST", another request to MYLIST EDIT the file will be issued. This, of course, comes with a cost of having additional two second wait for every file you re-send to anidb.
 
 
 File Cache
 ===================
-Anidb tool supports File Cache. This feature drastically reduces the number of requests to Anidb and the time spent in hashing if you rehash the files you've hashed already. Basically, with File Cache enabled, for files you've already hashed and whose state weren't changed since that time, Anidb tool will only hash the first chunk (~10Mb) of the file and will not issue any requests to Anidb.
+Anidb tool supports File Cache. This feature drastically reduces the number of requests to Anidb and the time spent in hashing if you rehash the files you've hased already. With File Cache enabled, for files you've already hashed and whose state weren't changed since that time, Anidb tool will only hash the first chunk (~10Mb) of the file and will not issue any requests to Anidb.
 
 More specifically, the partial hashing scheme works by hashing only the first chunk of the file (this is called the Lead Hash) and then looking in the File Cache for files with the same Lead Hash. If such files are found, their complete hash is taken from the File Cache instead of recalculating it from the scratch.
 
-This scheme has a potential drawback: if you leave the first chunk of the file unchanged but still change the subsequent chunks, the file will still hash to the same Lead Hash and thus resolve to the same File Cache record. In other words, anidb tool will NOT see the changes you introduced to the file, and will continue to believe this is the same old file which hashes to the same old complete hash.
+This scheme has a potential drawback: if you leave the first chunk of the file unchanged but still change the subsequent chunks, the file will still hash to the same Lead Hash and thus resolve to the same File Cache record. In other words, anidb tool will NOT see the changes you have introduced to the file, and will continue to believe this is the same old file which hashes to the same old complete hash.
 
-This situation is rare with video files though, since it's rare for an end user to edit a video file you hash for anidb anyway, and even if you edit the file, you usually change it's header too, thus changing the first chunk and making it clear to anidb the file was changed. But still, keep this in mind. If you REALLY, POSITIVELY need a true hash of the file, use the "/-usecachedhashes" option as described in the Syntax section.
+This situation is rare with video files though, since it's uncommon for anyone to edit a video file you hash for anidb, and even if you edit the file you usually change it's header too, thus changing the first chunk and making it clear to anidb tool that the file was changed. Still, keep this in mind. If you really, POSITIVELY need a true hash of the file, use the "/-usecachedhashes" option as described in the Syntax section.
 
 File Cache can also reduce the number of requests to anidb. This is done in the following way. When you MYLIST ADD or MYLIST EDIT a file first, if UpdateCache is enabled as described in the Configuration section, anidb tool will save a record in the file cache, keeping track of anidb's State and Watched params. If, on the next occasion, you try to MYLIST ADD or MYLIST EDIT the same file again and you have IgnoreUnchangedFiles enabled, anidb tool will compare your new State and Watched params to the ones it saved, and if the tool sees no changes, it will not issue the same request again.
 
@@ -169,6 +175,8 @@ You can rename files as much as you want. Anidb tool identifies files by their h
 
 Version Info
 ===================
+28.12.2011 - Added /source, /storage, /other, /watchdate settings. Fields which weren't changed are now kept as they are on server. File Cache format changed, please purge the cache.
+05.09.2011 - Optimized hasher for multithreading.
 25.10.2009 - Added file cache, hash cache. Improved network stability.
 24.10.2009 - Added AutoEditExisting.
 27.12.2008 - Fixed another stupid error with int32 used for file size calculations. Now files of more than 2.xx GB in size should at last be hashed correctly.

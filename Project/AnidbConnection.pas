@@ -20,7 +20,6 @@ type
 const
   INFINITE = cardinal(-1);
 
-const
   ANIDB_REQUEST_PAUSE: TDatetime = 2 * OneSecond + 500 * OneMillisecond;
   ANIDB_BUSY_PAUSE: cardinal = 5000; //milliseconds
 
@@ -156,8 +155,7 @@ type
     property ProtoVer: AnsiString read FProtoVer write FProtoVer;
 
   public //Commands
-    function MyListAdd(size: int64; ed2k: AnsiString; state: integer;
-      viewed: boolean; edit: boolean): TAnidbResult;
+    function MyListAdd(size: int64; ed2k: AnsiString; state: TAnidbFileState; edit: boolean): TAnidbResult;
     function MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;
   end;
 
@@ -591,7 +589,7 @@ begin
   Result := (FSessionKey <> '');
 end;
 
-
+//Boolean in andb
 function AnidbBool(value: boolean): AnsiString; inline;
 begin
   if value then
@@ -600,17 +598,56 @@ begin
     Result := '0';
 end;
 
-function TAnidbConnection.MyListAdd(size: int64; ed2k: AnsiString; state: integer;
-  viewed: boolean; edit: boolean): TAnidbResult;
-var ans: TAnsiStringArray;
+const
+  // Sets UnixStartDate to TDateTime of 01/01/1970
+  UnixStartDate: TDateTime = 25569.0;
+
+function DateTimeToUnix(ConvDate: TDateTime): Longint;
 begin
-  Result := SessionExchange('MYLISTADD',
-    'size='+IntToStr(size)+'&'+
-    'ed2k='+ed2k+'&'+
-    'state='+IntToStr(state)+'&'+
-    'viewed='+AnidbBool(viewed)+'&'+
-    'edit='+AnidbBool(edit),
-    ans);
+  Result := Round((ConvDate - UnixStartDate) * 86400);
+end;
+
+function UnixToDateTime(USec: Longint): TDateTime;
+begin
+  Result := (Usec / 86400) + UnixStartDate;
+end;
+
+//Datetime in anidb: string representation of integer
+function AnidbDatetime(dt: TDatetime): AnsiString;
+begin
+  Result := IntToStr(DatetimeToUnix(dt));
+end;
+
+//Strings in anidb: html encoded
+function AnidbString(s: string): AnsiString;
+begin
+ //For now just ignore bad stuff
+ //TODO: HTML-Encode strings and strip dangerous symbols.
+  Result := AnsiString(s);
+end;
+
+
+function TAnidbConnection.MyListAdd(size: int64; ed2k: AnsiString;
+  state: TAnidbFileState; edit: boolean): TAnidbResult;
+var ans: TAnsiStringArray;
+  s: string;
+begin
+  s := 'size='+IntToStr(size)+'&ed2k='+ed2k+'&edit='+AnidbBool(edit);
+
+  if state.State_set then
+    s := s + '&state='+IntToStr(state.State);
+  if state.Viewed_set then
+    s := s + '&viewed='+AnidbBool(state.Viewed);
+  if state.ViewDate_set then
+    s := s + '&viewdate='+AnidbDatetime(state.ViewDate);
+  if state.Source_set then
+    s := s + '&source='+AnidbString(state.Source);
+  if state.Storage_set then
+    s := s + '&storage='+AnidbString(state.Storage);
+  if state.Other_set then
+    s := s + '&other='+AnidbString(state.Other);
+
+  Result := SessionExchange('MYLISTADD', s, ans);
 end;
 
 function TAnidbConnection.MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;

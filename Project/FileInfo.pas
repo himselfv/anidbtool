@@ -9,8 +9,8 @@ type
     ed2k: MD4Digest;
     lead: MD4Digest;
     StateSet: boolean; //the file have been added to Anidb at least once
-    State: integer; //on_hd, on_cd, etc
-    Watched: boolean;
+    State: TAnidbFileState; //information that Anidb has about the file
+      //some fields might be missing
   end;
   PFileInfo = ^TFileInfo;
 

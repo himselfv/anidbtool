@@ -148,6 +148,72 @@ const
 	SERVER_BUSY			        	= 602; //d
 	API_VIOLATION			      	= 666; //a
 
+type
+ //File information that is stored in Anidb
+  TAnidbFileState = record
+    State: integer;
+    State_set: boolean;
+    Viewed: boolean;
+    Viewed_set: boolean;
+    ViewDate: TDatetime;
+    ViewDate_set: boolean;
+    Source: string;
+    Source_set: boolean;
+    Storage: string;
+    Storage_set: boolean;
+    Other: string;
+    Other_set: boolean;
+  end;
+
+ //True if at least one field is set
+function AfsSomethingIsSet(afs: TAnidbFileState): boolean;
+
+//Updates afs fields with new data (only the parts that were changed)
+function AfsUpdate(var afs: TAnidbFileState; newData: TAnidbFileState): boolean;
+
 implementation
+
+function AfsSomethingIsSet(afs: TAnidbFileState): boolean;
+begin
+  Result := afs.State_set
+    or afs.Viewed_set
+    or afs.ViewDate_set
+    or afs.Source_set
+    or afs.Storage_set
+    or afs.Other_set;
+end;
+
+function AfsUpdate(var afs: TAnidbFileState; newData: TAnidbFileState): boolean;
+begin
+  if newData.State_set then begin
+    afs.State := newData.State;
+    afs.State_set := true;
+  end;
+
+  if newData.Viewed_set then begin
+    afs.Viewed := newData.Viewed;
+    afs.Viewed_set := true;
+  end;
+
+  if newData.ViewDate_set then begin
+    afs.ViewDate := newData.ViewDate;
+    afs.ViewDate_set := true;
+  end;
+
+  if newData.Source_set then begin
+    afs.Source := newData.Source;
+    afs.Source_set := true;
+  end;
+
+  if newData.Storage_set then begin
+    afs.Storage := newData.Storage;
+    afs.Storage_set := true;
+  end;
+
+  if newData.Other_set then begin
+    afs.Other := newData.Other;
+    afs.Other_set := true;
+  end;
+end;
 
 end.

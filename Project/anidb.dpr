@@ -19,8 +19,7 @@ uses
 
 type
   TAnidbOptions = record
-    FileState: integer;
-    Watched: boolean;
+    FileState: TAnidbFileState;
     EditMode: boolean;
   end;
   PAnidbOptions = ^TAnidbOptions;
@@ -68,7 +67,8 @@ begin
   writeln('Commands: ');
   writeln('  hash <filename> [/s]');
   writeln('  mylistadd <filename> [/s] [/state <state>] [/watched] [/edit] [/noerrors]');
-  writeln('   [/autoedit]');
+  writeln('   [/autoedit] [/source <source>] [/storage <storage>] [/other <other>]');
+  writeln('   [/watchdate <date>]');
   writeln('  myliststats');
   writeln('');
   writeln('Where:');
@@ -76,6 +76,10 @@ begin
   writeln('  /s iterates subdirectories');
   writeln('  /state <state> sets file state (unknown/hdd/cd/deleted)');
   writeln('  /watched marks file as watched');
+  writeln('  /watchdate sets the date you watched this episode/series');
+  writeln('  /source <source> sets file source (any string)');
+  writeln('  /storage <storage> sets file storage (any string)');
+  writeln('  /other <other> sets other remarks (any string)');
   writeln('  /edit forces edit mode');
   writeln('  /noerrors allows to skip errors and continue adding files');
   writeln('  /autoedit instructs to edit the file if it''s already in mylist');
@@ -152,8 +156,7 @@ begin
   ProgramOptions.UpdateCache := true;
   ProgramOptions.IgnoreUnchangedFiles := true;
   ProgramOptions.Verbose := false;
-  AnidbOptions.FileState := STATE_UNKNOWN;
-  AnidbOptions.Watched := false;
+  FillChar(AnidbOptions, SizeOf(AnidbOptions), 0);
   AnidbOptions.EditMode := false;
 
  //Read some default options from config
@@ -347,22 +350,47 @@ begin
   HashFile(fname, f_size, f_ed2k, f);
 
   if ProgramOptions.IgnoreUnchangedFiles
-  and Assigned(f)
-  and (f.StateSet)
-  and (f.State = AnidbOptions.FileState)
-  and (f.Watched = AnidbOptions.Watched)
-  then begin
-    writeln('File unchanged, ignoring.');
-    Result := true;
-    exit;
+  and Assigned(f) and (f.StateSet) then begin
+   //First we disable all the info which haven't been changed
+    if f.State.State_set and AnidbOptions.FileState.State_set
+    and (f.State.State = AnidbOptions.FileState.State) then
+      AnidbOptions.FileState.State_set := false;
+
+    if f.State.Viewed_set and AnidbOptions.FileState.Viewed_set
+    and (f.State.Viewed = AnidbOptions.FileState.Viewed) then
+      AnidbOptions.FileState.Viewed_set := false;
+
+    if f.State.ViewDate_set and AnidbOptions.FileState.ViewDate_set
+    and (f.State.ViewDate = AnidbOptions.FileState.ViewDate) then
+      AnidbOptions.FileState.ViewDate_set := false;
+
+    if f.State.Source_set and AnidbOptions.FileState.Source_set
+    and (f.State.Source = AnidbOptions.FileState.Source) then
+      AnidbOptions.FileState.Source_set := false;
+
+    if f.State.Storage_set and AnidbOptions.FileState.Storage_set
+    and (f.State.Storage = AnidbOptions.FileState.Storage) then
+      AnidbOptions.FileState.Storage_set := false;
+
+    if f.State.Other_set and AnidbOptions.FileState.Other_set
+    and (f.State.Other = AnidbOptions.FileState.Other) then
+      AnidbOptions.FileState.Other_set := false;
+
+   //Now if there's nothing to change then skip the file
+    if not AfsSomethingIsSet(AnidbOptions.FileState) then begin
+      writeln('File unchanged, ignoring.');
+      Result := true;
+      exit;
+    end;
+
+   //Else just write the stuff that was changed
   end;
-  
+
  //If the file is in cache, we're sure it's already in mylist, so just edit it. 
   EditMode := AnidbOptions.EditMode or (Assigned(f) and f.StateSet);
 
 
-  res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
-    AnidbOptions.Watched, EditMode);
+  res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState, EditMode);
   if (res.code=INVALID_SESSION)
   or (res.code=LOGIN_FIRST)
   or (res.code=LOGIN_FAILED) then begin
@@ -375,8 +403,7 @@ begin
     writeln('Logged in');
 
    //Retry
-    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
-      AnidbOptions.Watched, EditMode);
+    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState, EditMode);
   end;
 
 
@@ -388,8 +415,7 @@ begin
     writeln('File in mylist, editing...');
 
    //Trying again, editing this time
-    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState,
-      AnidbOptions.Watched, {EditMode=}true);
+    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState, {EditMode=}true);
   end;
 
   writeln(res.ToString);
@@ -402,8 +428,8 @@ begin
    //If UpdateCache is on, we should have f assigned.
     Assert(Assigned(f), 'UpdateCache is on and yet cache record is not assigned.');
 
-    f.State := AnidbOptions.FileState;
-    f.Watched := AnidbOptions.Watched;
+   { Merge state }
+    AfsUpdate(f.State, AnidbOptions.FileState);
     f.StateSet := true;
     FileDb.Changed;
   end;
@@ -454,6 +480,22 @@ begin
 end;
 
 ////////////////////////////////////////////////////////////////////////////////
+
+//Decodes string parameter: removes surrounding quotes, decodes special chars
+function DecodeStrParam(s: string): string;
+begin
+  if Length(s)<2 then begin
+    Result := '';
+    exit;
+  end;
+
+ //Windows does it this way so we don't care if the last " is escaped
+  if (s[1]='"') and (s[Length(s)]='"') then
+    s := StrSub(@s[2], @s[Length(s)-1]);
+
+ //De-escape the rest
+  s := UniReplaceStr(s, '\"', '"');
+end;
 
 function FileStateFromStr(s: string): integer;
 begin
@@ -558,17 +600,71 @@ begin
     if SameText(param, '/state') then begin
       Inc(i);
       if i > ParamCount then begin
-        writeln('Incomleted /state sequence.');
+        writeln('Incomlete /state sequence.');
         ShowUsage;
         exit;
       end;
 
-      AnidbOptions.FileState := FileStateFromStr(paramstr(i));
+      AnidbOptions.FileState.State := FileStateFromStr(paramstr(i));
+      AnidbOptions.FileState.State_set := true;
     end else
 
    //Watched (for mylistadd only)
     if SameText(param, '/watched') then begin
-      AnidbOptions.Watched := true;
+      AnidbOptions.FileState.Viewed := true;
+      AnidbOptions.FileState.Viewed_set := true;
+    end else
+
+   //WatchDate (for mylistadd only)
+    if SameText(param, '/watchdate') then begin
+      Inc(i);
+      if i > ParamCount then begin
+        writeln('Incomlete /watchdate sequence.');
+        ShowUsage;
+        exit;
+      end;
+
+      AnidbOptions.FileState.ViewDate := StrToDatetime(DecodeStrParam(paramstr(i)));
+      AnidbOptions.FileState.ViewDate_set := true;
+    end else
+
+   //Source (for mylistadd only)
+    if SameText(param, '/source') then begin
+      Inc(i);
+      if i > ParamCount then begin
+        writeln('Incomlete /source sequence.');
+        ShowUsage;
+        exit;
+      end;
+
+      AnidbOptions.FileState.Source := DecodeStrParam(paramstr(i));
+      AnidbOptions.FileState.Source_set := true;
+    end else
+
+   //Storage (for mylistadd only)
+    if SameText(param, '/storage') then begin
+      Inc(i);
+      if i > ParamCount then begin
+        writeln('Incomlete /storage sequence.');
+        ShowUsage;
+        exit;
+      end;
+
+      AnidbOptions.FileState.Storage := DecodeStrParam(paramstr(i));
+      AnidbOptions.FileState.Storage_set := true;
+    end else
+
+   //Other (for mylistadd only)
+    if SameText(param, '/other') then begin
+      Inc(i);
+      if i > ParamCount then begin
+        writeln('Incomlete /other sequence.');
+        ShowUsage;
+        exit;
+      end;
+
+      AnidbOptions.FileState.Other := DecodeStrParam(paramstr(i));
+      AnidbOptions.FileState.Other_set := true;
     end else
 
    //EditMode (for mylistadd only)

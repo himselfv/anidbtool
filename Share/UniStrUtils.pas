@@ -2,14 +2,14 @@ unit UniStrUtils;
 {$WEAKPACKAGEUNIT ON}
 
 interface
-uses SysUtils, StrUtils, Windows, WideStrUtils;
+uses SysUtils, Windows, StrUtils, WideStrUtils;
 
 (*
  В библиотеке введён дополнительный тип: UniString.
  На старых компиляторах
    UniString = WideString
  На новых
-   UniString = string (unicode)
+   UniString = UnicodeString (и == string, если включено UNICODE)
 
  Все функции существуют в следующих версиях:
    Function: агностическая функция (для типа string)
@@ -29,27 +29,39 @@ uses SysUtils, StrUtils, Windows, WideStrUtils;
 
  Таким образом, UniFunction/WideFunction даёт вам поддержку юникода в наилучшем
  возможном виде, а простая Function работает со строками, которые приняты
- по умолчанию на платформе.
+ по умолчанию на платформе компиляции.
 
  Следует помнить, что WideChar == UnicodeChar, и PWideChar в любом случае
  ничуть не отличается от PUnicodeChar. Поэтому функции, которые работают
- с PWideChar, продолжают работать без изменений.
+ с PWideChar, не требуют изменений.
+
+ Используются проверки:
+   IFDEF UNICODE: для проверки типа string (Ansi или Unicode)
+   IF CompilerVersion>=21: для проверки доступности новых типов и функций
+
+ Например:
+   IFDEF UNICODE          => string == UnicodeString       (по умолчанию включен юникод)
+   IF CompilerVersion>=21 => UniString == UnicodeString    (юникод ДОСТУПЕН В ПРИНЦИПЕ)
 *)
 
 const
-  BOM_UTF16LE = #255#254;
-  BOM_UTF16BE = #254#255;
+  BOM_UTF16BE: AnsiString = #254#255; //FE FF
+  BOM_UTF16LE: AnsiString = #255#254; //FF FE
+ //должны быть ansi, иначе получится два юникод-символа
 
 type
  //UniString - это наилучший доступный на платформе Unicode-тип.
  //На старых компиляторах UniString=WideString, на новых UniString=UnicodeString.
- {$IFDEF UNICODE}
+ {$IF CompilerVersion >= 21}
   UniString = UnicodeString;
   PUniString = PUnicodeString;
  {$ELSE}
   UniString = WideString;
   PUniString = PWideString;
- {$ENDIF}
+ //Доопределяем новые символы на старых платформах для быстрой совместимости
+  UnicodeString = UniString;
+  PUnicodeString = PUniString;
+ {$IFEND}
 
   UniChar = WideChar;
   PUniChar = PWideChar;
@@ -178,10 +190,20 @@ function AnsiSepSplit(s: AnsiString; sep: AnsiChar): TAnsiStringArray;
 function WideSepSplit(s: UniString; sep: UniChar): TUniStringArray;
 function SepSplit(s: string; sep: char): TStringArray;
 
+//Бьёт строку по нескольким разделителям, с учётом кавычек
+function StrSplitExA(s: PAnsiChar; sep: PAnsiChar; quote: AnsiChar): TAnsiStringArray;
+function StrSplitExW(s: PUnichar; sep: PUniChar; quote: UniChar): TUniStringArray;
+function StrSplitEx(s: PChar; sep: PChar; quote: Char): TStringArray;
+
 //Joins a string array usng the specified separator
-function AnsiSepJoin(s: TAnsiStringArray; sep: AnsiChar): AnsiString;
-function WideSepJoin(s: TUniStringArray; sep: UniChar): UniString;
-function SepJoin(s: TStringArray; sep: Char): string;
+function AnsiSepJoin(s: TAnsiStringArray; sep: AnsiChar): AnsiString; overload;
+function WideSepJoin(s: TUniStringArray; sep: UniChar): UniString; overload;
+function SepJoin(s: TStringArray; sep: Char): string; overload;
+
+//Same, just receives a point to a first string, and their number
+function AnsiSepJoin(s: PAnsiString; cnt: integer; sep: AnsiChar): AnsiString; overload;
+function WideSepJoin(s: PUniString; cnt: integer; sep: UniChar): UniString; overload;
+function SepJoin(s: PString; cnt: integer; sep: Char): string; overload;
 
 //Возвращает в виде WideString строку PWideChar, но не более N символов
 //Полезно для чтения всяких буферов фиксированного размера, где не гарантирован ноль.
@@ -282,6 +304,7 @@ function ReadUpToNext(str: PChar; cs: string; out block: string): PChar;
 
 
 //Removes quote characters from around the string, if they exist.
+//Duplicate: UniDequotedStr, although this one is more powerful
 function AnsiStripQuotes(s: AnsiString; qc1, qc2: AnsiChar): AnsiString;
 function WideStripQuotes(s: UniString; qc1, qc2: UniChar): UniString;
 function StripQuotes(s: string; qc1, qc2: char): string;
@@ -314,7 +337,7 @@ function BETrimW(beg, en: PUniChar; sep: UniChar = ' '): UniString;
 function BETrim(beg, en: PChar; sep: Char = ' '): string;
 
 
-//Binary/string conversion
+{ Binary/string conversion }
 //Преобразует данные в цепочку hex-кодов.
 function BinToHex(ptr: pbyte; sz: integer): AnsiString;
 //Преобразует массив байт в цепочку hex-кодов.
@@ -323,6 +346,28 @@ function DataToHex(data: array of byte): AnsiString;
 function HexCharValue(c: AnsiChar): byte; inline;
 //Декодирует строку из hex-пар в данные. Место под данные должно быть выделено заранее
 procedure HexToBin(s: AnsiString; p: pbyte; size: integer);
+
+
+{ Codepage utils }
+//Превращает один символ в Wide/Ansi
+function ToWideChar(c: AnsiChar; cp: cardinal): WideChar;
+function ToChar(c: WideChar; cp: cardinal): AnsiChar;
+
+//Превращает строку в Wide/Ansi
+function ToWideString(s: AnsiString; cp: cardinal): WideString;
+function ToString(s: WideString; cp: cardinal): AnsiString;
+
+//Превращает буфер заданной длины в Wide/Ansi
+function BufToWideString(s: PAnsiChar; len: integer; cp: cardinal): WideString;
+function BufToString(s: PWideChar; len: integer; cp: cardinal): AnsiString;
+
+//Меняет кодировку Ansi-строки
+function Convert(s: AnsiString; cpIn, cpOut: cardinal): AnsiString;
+
+//Меняет кодировку Ansi-строки с системной на консольную и наоборот
+function WinToOEM(s: AnsiString): AnsiString; inline;
+function OEMToWin(s: AnsiString): AnsiString; inline;
+
 
 type
  (*
@@ -863,63 +908,211 @@ begin
 end;
 
 
+function StrSplitExA(s: PAnsiChar; sep: PAnsiChar; quote: AnsiChar): TAnsiStringArray;
+var pc: PAnsiChar;
+  i: integer;
+  in_q: boolean;
+
+  function match_q(c: AnsiChar): boolean;
+  var sc: PAnsiChar;
+  begin
+    sc := sep;
+    while (sc^<>#00) and (sc^<>c) do Inc(sc);
+    Result := (sc^=c);
+  end;
+
+begin
+ //Count the number of separator characters not between
+  i := 1;
+  pc := s;
+  in_q := false;
+  while pc^ <> #00 do begin
+    if pc^=quote then
+      in_q := not in_q
+    else
+    if (not in_q) and match_q(pc^) then
+      Inc(i);
+    Inc(pc);
+  end;
+
+ //Reserve array
+  SetLength(Result, i);
+
+ //Parse
+  i := 0;
+  pc := s;
+  in_q := false;
+  while pc^<>#00 do begin
+    if pc^=quote then begin
+      in_q := not in_q;
+      Inc(pc);
+    end else
+    if (not in_q) and match_q(pc^) then begin
+      Result[i] := StrSubA(s, pc);
+      Inc(i);
+      Inc(pc);
+      s := pc;
+    end else
+      Inc(pc);
+  end;
+
+ //Last time
+  Result[i] := StrSubA(s, pc);
+end;
+
+function StrSplitExW(s: PUnichar; sep: PUniChar; quote: UniChar): TUniStringArray;
+var pc: PUniChar;
+  i: integer;
+  in_q: boolean;
+
+  function match_q(c: UniChar): boolean;
+  var sc: PUniChar;
+  begin
+    sc := sep;
+    while (sc^<>#00) and (sc^<>c) do Inc(sc);
+    Result := (sc^=c);
+  end;
+
+begin
+ //Count the number of separator characters not between
+  i := 1;
+  pc := s;
+  in_q := false;
+  while pc^ <> #00 do begin
+    if pc^=quote then
+      in_q := not in_q
+    else
+    if (not in_q) and match_q(pc^) then
+      Inc(i);
+    Inc(pc);
+  end;
+
+ //Reserve array
+  SetLength(Result, i);
+
+ //Parse
+  i := 0;
+  pc := s;
+  in_q := false;
+  while pc^<>#00 do begin
+    if pc^=quote then begin
+      in_q := not in_q;
+      Inc(pc);
+    end else
+    if (not in_q) and match_q(pc^) then begin
+      Result[i] := StrSubW(s, pc);
+      Inc(i);
+      Inc(pc);
+      s := pc;
+    end else
+      Inc(pc);
+  end;
+
+ //Last time
+  Result[i] := StrSubW(s, pc);
+end;
+
+function StrSplitEx(s: PChar; sep: PChar; quote: Char): TStringArray;
+begin
+{$IFDEF UNICODE}
+  Result := StrSplitExW(PWideChar(s), PWideChar(sep), quote);
+{$ELSE}
+  Result := StrSplitExA(PAnsiChar(s), PAnsiChar(sep), quote);
+{$ENDIF}
+end;
+
 ////////////////////////////////////////////////////////////////////////////////
 //Joins a string array usng the specified separator.
 
 function AnsiSepJoin(s: TAnsiStringArray; sep: AnsiChar): AnsiString;
-var len, i, li: integer;
 begin
- //Считаем общий размер
-  len := Length(s) - 1; //число разделителей
-  for i := 0 to Length(s) - 1 do
-    len := len + Length(s[i]);
-
- //Выделяем память
-  SetLength(Result, len);
-  li := 0;
-  for i := 0 to Length(s) - 2 do begin
-    Move(s[i][1], Result[li], Length(s[i])*SizeOf(AnsiChar));
-    li := li + Length(s[i]);
-    Result[li] := sep;
-    li := li + 1;
-  end;
-
- //Последний кусок
-  i := Length(s) - 1;
-  if i >= 0 then
-    Move(s[i][1], Result[li], Length(s[i])*SizeOf(AnsiChar));
+  Result := AnsiSepJoin(@s[1], Length(s), sep);
 end;
 
 function WideSepJoin(s: TUniStringArray; sep: UniChar): UniString;
-var len, i, li: integer;
 begin
- //Считаем общий размер
-  len := Length(s) - 1; //число разделителей
-  for i := 0 to Length(s) - 1 do
-    len := len + Length(s[i]);
-
- //Выделяем память
-  SetLength(Result, len);
-  li := 0;
-  for i := 0 to Length(s) - 2 do begin
-    Move(s[i][1], Result[li], Length(s[i])*SizeOf(UniChar));
-    li := li + Length(s[i]);
-    Result[li] := sep;
-    li := li + 1;
-  end;
-
- //Последний кусок
-  i := Length(s) - 1;
-  if i >= 0 then
-    Move(s[i][1], Result[li], Length(s[i])*SizeOf(UniChar));
+  Result := WideSepJoin(@s[1], Length(s), sep);
 end;
 
 function SepJoin(s: TStringArray; sep: Char): string;
 begin
 {$IFDEF UNICODE}
-  Result := WideSepJoin(s, sep);
+  Result := WideSepJoin(@s[1], Length(s), sep);
 {$ELSE}
-  Result := AnsiSepJoin(s, sep);
+  Result := AnsiSepJoin(@s[1], Length(s), sep);
+{$ENDIF}
+end;
+
+function AnsiSepJoin(s: PAnsiString; cnt: integer; sep: AnsiChar): AnsiString;
+var si: PAnsiString;
+  ci: integer;
+  len, li: integer;
+begin
+ //Считаем общий размер
+  len := cnt - 1; //число разделителей
+  si := s;
+  ci := cnt;
+  while ci>0 do begin
+    len := len + Length(si^);
+    Inc(si);
+    Dec(ci);
+  end;
+
+ //Выделяем память
+  SetLength(Result, len);
+  li := 1;
+  while cnt>1 do begin
+    Move(s^[1], Result[li], Length(s^)*SizeOf(AnsiChar));
+    li := li + Length(s^);
+    Result[li] := sep;
+    li := li + 1;
+    Inc(s);
+    Dec(cnt);
+  end;
+
+ //Последний кусок
+  if cnt >= 1 then
+    Move(s^[1], Result[li], Length(s^)*SizeOf(AnsiChar));
+end;
+
+function WideSepJoin(s: PUniString; cnt: integer; sep: UniChar): UniString;
+var si: PUniString;
+  ci: integer;
+  len, li: integer;
+begin
+ //Считаем общий размер
+  len := cnt - 1; //число разделителей
+  si := s;
+  ci := cnt;
+  while ci>0 do begin
+    len := len + Length(si^);
+    Inc(si);
+    Dec(ci);
+  end;
+
+ //Выделяем память
+  SetLength(Result, len);
+  li := 1;
+  while cnt>1 do begin
+    Move(s^[1], Result[li], Length(s^)*SizeOf(UniChar));
+    li := li + Length(s^);
+    Result[li] := sep;
+    li := li + 1;
+    Inc(s);
+    Dec(cnt);
+  end;
+
+ //Последний кусок
+  if cnt >= 1 then
+    Move(s^[1], Result[li], Length(s^)*SizeOf(UniChar));
+end;
+
+function SepJoin(s: PString; cnt: integer; sep: Char): string;
+begin
+{$IFDEF UNICODE}
+  Result := WideSepJoin(s, cnt, sep);
+{$ELSE}
+  Result := AnsiSepJoin(s, cnt, sep);
 {$ENDIF}
 end;
 
@@ -1852,6 +2045,81 @@ begin
         + HexCharValue(s[2*i+2]);
     Inc(p);
   end;
+end;
+
+
+////////////////////////////////////////////////////////////////////////////////
+///  Codepage utils
+
+function ToWideChar(c: AnsiChar; cp: cardinal): WideChar;
+begin
+  if MultiByteToWideChar(cp, 0, @c, 1, @Result, 2) = 0 then
+    RaiseLastOsError;
+end;
+
+function ToChar(c: WideChar; cp: cardinal): AnsiChar;
+begin
+  if WideCharToMultiByte(cp, 0, @c, 2, @Result, 1, nil, nil) = 0 then
+    RaiseLastOsError;
+end;
+
+function ToWideString(s: AnsiString; cp: cardinal): WideString;
+begin
+  Result := BufToWideString(PAnsiChar(s), Length(s), cp);
+end;
+
+function ToString(s: WideString; cp: cardinal): AnsiString;
+begin
+  Result := BufToString(PWideChar(s), Length(s), cp);
+end;
+
+function BufToWideString(s: PAnsiChar; len: integer; cp: cardinal): WideString;
+var size: integer;
+begin
+  if s^=#00 then begin
+    Result := '';
+    exit;
+  end;
+
+  size := MultiByteToWideChar(cp, 0, s, len, nil, 0);
+  if size=0 then
+    RaiseLastOsError;
+  SetLength(Result, size);
+  if MultiByteToWideChar(cp, 0, s, len, pwidechar(Result), size) = 0 then
+    RaiseLastOsError;
+end;
+
+function BufToString(s: PWideChar; len: integer; cp: cardinal): AnsiString;
+var size: integer;
+begin
+  if s^=#00 then begin
+    Result := '';
+    exit;
+  end;
+
+  size := WideCharToMultiByte(cp, 0, s, len, nil, 0, nil, nil);
+  if size=0 then
+    RaiseLastOsError;
+  SetLength(Result, size);
+  if WideCharToMultiByte(cp, 0, s, len, PAnsiChar(Result), size, nil, nil) = 0 then
+    RaiseLastOsError;
+end;
+
+function Convert(s: AnsiString; cpIn, cpOut: cardinal): AnsiString;
+begin
+  Result := ToString(ToWideString(s, cpIn), cpOut);
+end;
+
+//Переводит строку из текущей кодировки системы в текущую кодировку консоли.
+function WinToOEM(s: AnsiString): AnsiString;
+begin
+  Result := Convert(s, CP_ACP, CP_OEMCP);
+end;
+
+//Переводит строку из текущей кодировки консоли в текущую кодировку системы.
+function OEMToWin(s: AnsiString): AnsiString;
+begin
+  Result := Convert(s, CP_OEMCP, CP_ACP);
 end;
 
 
