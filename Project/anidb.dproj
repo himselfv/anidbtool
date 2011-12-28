@@ -73,7 +73,7 @@
 						<Source Name="MainSource">anidb.dpr</Source>
 					</Source>
 					<Parameters>
-						<Parameters Name="RunParams">mylistadd /s &quot;E:\Anime\Angel Beats\Angel Beats 01v2 [Mazui][B1437C35].mkv&quot;</Parameters>
+						<Parameters Name="RunParams">mylistadd readme.txt</Parameters>
 						<Parameters Name="UseLauncher">False</Parameters>
 						<Parameters Name="LoadAllSymbols">True</Parameters>
 						<Parameters Name="LoadUnspecifiedSymbols">False</Parameters>

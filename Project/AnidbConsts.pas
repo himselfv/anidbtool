@@ -169,7 +169,7 @@ type
 function AfsSomethingIsSet(afs: TAnidbFileState): boolean;
 
 //Updates afs fields with new data (only the parts that were changed)
-function AfsUpdate(var afs: TAnidbFileState; newData: TAnidbFileState): boolean;
+procedure AfsUpdate(var afs: TAnidbFileState; newData: TAnidbFileState);
 
 implementation
 
@@ -183,7 +183,7 @@ begin
     or afs.Other_set;
 end;
 
-function AfsUpdate(var afs: TAnidbFileState; newData: TAnidbFileState): boolean;
+procedure AfsUpdate(var afs: TAnidbFileState; newData: TAnidbFileState);
 begin
   if newData.State_set then begin
     afs.State := newData.State;

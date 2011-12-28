@@ -1,7 +1,7 @@
 unit AnidbConnection;
 
 interface
-uses SysUtils, DateUtils, WinSock, Windows, AnidbConsts;
+uses SysUtils, DateUtils, WinSock, Windows, AnidbConsts, UniStrUtils;
 
 //Single-threaded usage only!
 
@@ -615,7 +615,7 @@ end;
 //Datetime in anidb: string representation of integer
 function AnidbDatetime(dt: TDatetime): AnsiString;
 begin
-  Result := IntToStr(DatetimeToUnix(dt));
+  Result := AnsiString(IntToStr(DatetimeToUnix(dt)));
 end;
 
 //Strings in anidb: html encoded
@@ -630,12 +630,12 @@ end;
 function TAnidbConnection.MyListAdd(size: int64; ed2k: AnsiString;
   state: TAnidbFileState; edit: boolean): TAnidbResult;
 var ans: TAnsiStringArray;
-  s: string;
+  s: AnsiString;
 begin
-  s := 'size='+IntToStr(size)+'&ed2k='+ed2k+'&edit='+AnidbBool(edit);
+  s := 'size='+AnsiString(IntToStr(size))+'&ed2k='+ed2k+'&edit='+AnidbBool(edit);
 
   if state.State_set then
-    s := s + '&state='+IntToStr(state.State);
+    s := s + '&state='+AnsiString(IntToStr(state.State));
   if state.Viewed_set then
     s := s + '&viewed='+AnidbBool(state.Viewed);
   if state.ViewDate_set then
@@ -647,12 +647,12 @@ begin
   if state.Other_set then
     s := s + '&other='+AnidbString(state.Other);
 
-  Result := SessionExchange('MYLISTADD', s, ans);
+  Result := SessionExchange('MYLISTADD', AnsiString(s), ans);
 end;
 
 function TAnidbConnection.MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;
 var ans: TAnsiStringArray;
-  vals: TAnsiStringArray;
+  vals: TStringArray;
 begin
   Result := SessionExchange('MYLISTSTATS', '', ans);
   if Result.code = MYLIST_STATS then begin
@@ -661,7 +661,7 @@ begin
       raise Exception.Create('Illegal answer from server: no data.');
 
     ZeroMemory(@Stats, SizeOf(Stats));
-    vals := SplitStr(ans[1], '|');
+    vals := SepSplit(string(ans[1]), '|');
     if (Length(vals) < 16)
     or not TryStrToInt(vals[00], Stats.cAnimes)
     or not TryStrToInt(vals[01], Stats.cEps)

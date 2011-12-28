@@ -137,7 +137,7 @@ begin
 
  //If we have SessionInfo stored, let's try to use it
   if SameText(SessionInfo.Values['LoggedIn'],  'True') then begin
-    AnidbServer.SessionKey := SessionInfo.Values['SessionKey'];
+    AnidbServer.SessionKey := AnsiString(SessionInfo.Values['SessionKey']);
     if not TryStrToInt(SessionInfo.Values['SessionPort'], FSessionPort) then
       raise Exception.Create('Incorrect "SessionPort" value in cache');
     AnidbServer.LocalPort := FSessionPort;
@@ -171,7 +171,7 @@ begin
   ProgramOptions.UseOnlyExtensions := Config.Values['UseOnlyExtensions'];
   
  //Connect to anidb (well, formally; UDP has no connections in practice)
-  AnidbServer.Connect(Config.Values['Host'], FPort);
+  AnidbServer.Connect(AnsiString(Config.Values['Host']), FPort);
 end;
 
 procedure App_SaveSessionInfo;
@@ -179,7 +179,7 @@ begin
   SessionInfo.Values['LastCommandTime'] := DatetimeToStr(AnidbServer.LastCommandTime);
   SessionInfo.Values['LoggedIn'] := BoolToStr(AnidbServer.LoggedIn, true);
   if AnidbServer.LoggedIn then begin
-    SessionInfo.Values['SessionKey'] := AnidbServer.SessionKey;
+    SessionInfo.Values['SessionKey'] := string(AnidbServer.SessionKey);
     SessionInfo.Values['SessionPort'] := IntToStr(AnidbServer.LocalPort);
   end else begin
     SessionInfo.Values['SessionKey'] := '';
@@ -337,7 +337,7 @@ var
   EditMode: boolean;
 begin
   if not AnidbServer.LoggedIn then begin
-    AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
+    AnidbServer.Login(AnsiString(Config.Values['User']), AnsiString(Config.Values['Pass']));
     App_SaveSessionInfo; {in case we're interrupted later}
     writeln('Logged in');
   end;
@@ -390,7 +390,7 @@ begin
   EditMode := AnidbOptions.EditMode or (Assigned(f) and f.StateSet);
 
 
-  res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState, EditMode);
+  res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, EditMode);
   if (res.code=INVALID_SESSION)
   or (res.code=LOGIN_FIRST)
   or (res.code=LOGIN_FAILED) then begin
@@ -398,12 +398,12 @@ begin
       writeln(res.ToString);  
     writeln('Session is obsolete, restoring...');
     AnidbServer.SessionKey := '';
-    AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
+    AnidbServer.Login(AnsiString(Config.Values['User']), AnsiString(Config.Values['Pass']));
     App_SaveSessionInfo; {in case we're interrupted later}
     writeln('Logged in');
 
    //Retry
-    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState, EditMode);
+    res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, EditMode);
   end;
 
 
@@ -415,7 +415,7 @@ begin
     writeln('File in mylist, editing...');
 
    //Trying again, editing this time
-    res := AnidbServer.MyListAdd(f_size, Md4ToString(f_ed2k), AnidbOptions.FileState, {EditMode=}true);
+    res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, {EditMode=}true);
   end;
 
   writeln(res.ToString);
@@ -447,7 +447,7 @@ begin
       writeln(res.ToString);  
     writeln('Session is obsolete, restoring...');
     AnidbServer.SessionKey := '';
-    AnidbServer.Login(Config.Values['User'], Config.Values['Pass']);
+    AnidbServer.Login(AnsiString(Config.Values['User']), AnsiString(Config.Values['Pass']));
     App_SaveSessionInfo; {in case we're interrupted later}
     writeln('Logged in');
 
