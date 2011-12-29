@@ -622,8 +622,8 @@ end;
 function AnidbString(s: string): AnsiString;
 begin
  //For now just ignore bad stuff
- //TODO: HTML-Encode strings and strip dangerous symbols.
-  Result := AnsiString(s);
+ //TODO: newlines -> <BR /> or newlines -> nothing (depends on param)
+  Result := UrlEncode(s);
 end;
 
 

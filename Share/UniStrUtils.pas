@@ -2,7 +2,7 @@ unit UniStrUtils;
 {$WEAKPACKAGEUNIT ON}
 
 interface
-uses SysUtils, Windows, StrUtils, WideStrUtils;
+uses SysUtils, Windows, StrUtils, WideStrUtils, IdURI;
 
 (*
  В библиотеке введён дополнительный тип: UniString.
@@ -410,6 +410,10 @@ type
   TStringBuilder = TAnsiStringBuilder;
   PStringBuilder = ^TStringBuilder;
  {$ENDIF}
+
+{ Html encoding }
+
+function UrlEncode(s: UniString): AnsiString;
 
 implementation
 
@@ -2247,5 +2251,31 @@ begin
   else
     Used := Used - SymbolCount;
 end;
+
+
+//Кодирует строку в URI-форме: все нестандартные и юникод-символы в проценты,
+//пробелы в
+//Пока сделано медленно и просто, при необходимости можно ускорить
+function UrlEncode(s: UniString): AnsiString;
+var i, j: integer;
+  U: UTF8String;
+begin
+  Result := '';
+  for i := 1 to Length(s) do
+    if CharInSet(s[i], ['a'..'z', 'A'..'Z', '1'..'9', '0']) then
+      Result := Result + AnsiChar(s[i])
+    else
+    if s[i]=' ' then
+      Result := Result + '+'
+    else begin
+     //Вообще говоря, символ в UTF-16 может занимать несколько пар...
+     //Но мы здесь это игнорируем.
+      U := UTF8String(s[i]); // explicit Unicode->UTF8 conversion
+      for j := 1 to Length(U) do
+        Result := Result + '%' + AnsiString(IntToHex(Ord(U[j]), 2));
+    end;
+end;
+
+
 
 end.
