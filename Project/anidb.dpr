@@ -494,7 +494,7 @@ begin
     s := StrSub(@s[2], @s[Length(s)-1]);
 
  //De-escape the rest
-  s := UniReplaceStr(s, '\"', '"');
+  Result := UniReplaceStr(s, '\"', '"');
 end;
 
 function FileStateFromStr(s: string): integer;
