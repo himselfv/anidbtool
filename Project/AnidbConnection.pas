@@ -4,6 +4,18 @@ unit AnidbConnection;
 interface
 uses SysUtils, DateUtils, WinSock, Windows, AnidbConsts, UniStrUtils;
 
+//Use UTF8 instead of ANSI+HTML_encoding
+//{$DEFINE ENC_UTF8}
+
+type
+{$IFDEF ENC_UTF8}
+  RawString = UnicodeString; //convert to UTF8 at the latest moment
+  RawChar = WideChar;
+{$ELSE}
+  RawString = AnsiString;
+  RawChar = AnsiChar;
+{$ENDIF}
+
 type
   ESocketError = class(Exception)
   public
@@ -29,17 +41,14 @@ type
     FSocket: TSocket;
     FHostAddr: in_addr;
     FPort: word;
-
     FLocalPort: word;
     function GetLocalPort: word;
     procedure SetLocalPort(Value: word);
-
 
  //Speed-up hacks
   protected
    //Used for select()
     fdRead: TFdSet;
-
     function HostnameToAddr(name: AnsiString; out addr: in_addr): boolean;
 
   private
@@ -58,9 +67,9 @@ type
     procedure Disconnect;
     function Connected: boolean;
 
-    procedure Send(s: AnsiString);
-    function Recv(out s: AnsiString; Timeout: cardinal = INFINITE): boolean;
-    function Exchange(inp: AnsiString; Timeout: cardinal = INFINITE; RetryCount: integer = 1): AnsiString;
+    procedure Send(s: RawString);
+    function Recv(out s: RawString; Timeout: cardinal = INFINITE): boolean;
+    function Exchange(inp: RawString; Timeout: cardinal = INFINITE; RetryCount: integer = 1): RawString;
 
     property HostAddr: in_addr read FHostAddr;
     property Port: word read FPort;
@@ -69,12 +78,12 @@ type
 
 
 type
-  TAnsiStringArray=array of AnsiString;
-  PAnsiStringArray=^TAnsiStringArray;
+  TRawStringArray=array of RawString;
+  PRawStringArray=^TRawStringArray;
 
   TAnidbResult = record
     code: integer;
-    msg: AnsiString;
+    msg: string;
     function ToString: string;
   end;
   PAnidbResult = ^TAnidbResult;
@@ -122,12 +131,12 @@ type
     FOnShortTimeout: TShortTimeoutEvent;
     FOnServerBusy: TServerBusyEvent;
     FOnNoAnswer: TNoAnswerEvent;
-    function Exchange_int(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
+    function Exchange_int(cmd, params: RawString; var outp: TRawStringArray): TAnidbResult;
   public
     constructor Create;
 
-    function Exchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
-    function SessionExchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
+    function Exchange(cmd, params: RawString; var outp: TRawStringArray): TAnidbResult;
+    function SessionExchange(cmd, params: RawString; var outp: TRawStringArray): TAnidbResult;
 
     property Timeout: cardinal read FTimeout write FTimeout;
     property RetryCount: integer read FRetryCount write FRetryCount;
@@ -306,16 +315,27 @@ begin
   FLocalPort := Value;
 end;
 
-procedure TUdpConnection.Send(s: AnsiString);
+procedure TUdpConnection.Send(s: RawString);
+{$IFDEF ENC_UTF8}
+var u: UTF8String;
+{$ENDIF}
 begin
+{$IFDEF ENC_UTF8}
+  u := UTF8String(s);
+  if not (WinSock.send(FSocket, u[1], Length(u), 0)=Length(u)) then
+{$ELSE}
   if not (WinSock.send(FSocket, s[1], Length(s), 0)=Length(s)) then
+{$ENDIF}
     raise ESocketError.Create(WsaGetLastError, 'send()');
 end;
 
-function TUdpConnection.Recv(out s: AnsiString; Timeout: cardinal): boolean;
+function TUdpConnection.Recv(out s: RawString; Timeout: cardinal): boolean;
 var sel: integer;
   tm: Timeval;
   sz: integer;
+{$IFDEF ENC_UTF8}
+  u: UTF8String;
+{$ENDIF}
 begin
  //Timeout-wait for data
   fdread.fd_count := 1;
@@ -341,12 +361,22 @@ begin
   if(ioctlsocket(FSocket, FIONREAD, sz) <> 0) then
     raise ESocketError.Create(WsaGetLastError, 'ioctlsocket()');
 
+ {$IFDEF ENC_UTF8}
+  SetLength(u, sz);
+  sz := WinSock.Recv(FSocket, u[1], sz, 0);
+ {$ELSE}
   SetLength(s, sz);
   sz := WinSock.Recv(FSocket, s[1], sz, 0);
+ {$ENDIF}
 
-  if (sz < 0) then
+  if sz < 0 then
     raise ESocketError.Create(WsaGetLastError, 'recv()');
+ {$IFDEF ENC_UTF8}
+  SetLength(u, sz);
+  s := string(u);
+ {$ELSE}
   SetLength(s, sz);
+ {$ENDIF}
 
   Result := true;
 end;
@@ -379,7 +409,7 @@ begin
   end;
 end;
 
-function TUdpConnection.Exchange(inp: AnsiString; Timeout: cardinal; RetryCount: integer): AnsiString;
+function TUdpConnection.Exchange(inp: RawString; Timeout: cardinal; RetryCount: integer): RawString;
 var i: integer;
   done: boolean;
 begin
@@ -408,7 +438,7 @@ begin
   inherited Create('Anidb error '+IntToStr(res.code) + ': ' + string(res.msg));
 end;
 
-function SplitStr(s: AnsiString; sep: AnsiChar): TAnsiStringArray;
+function SplitStr(s: RawString; sep: RawChar): TRawStringArray;
 var sepcnt, i: integer;
   last_sep: integer;
 begin
@@ -426,7 +456,7 @@ begin
   for i := 1 to Length(s) do
     if s[i]=sep then begin
       SetLength(Result[sepcnt], i-last_sep-1);
-      Move(s[last_sep+1], Result[sepcnt][1], i-last_sep-1);
+      Move(s[last_sep+1], Result[sepcnt][1], (i-last_sep-1)*sizeof(s[1]));
       last_sep := i;
       Inc(sepcnt);
     end;
@@ -442,8 +472,8 @@ begin
   FLastCommandTime := 0;
 end;
 
-function TAnidbConnection.Exchange_int(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
-var str: AnsiString;
+function TAnidbConnection.Exchange_int(cmd, params: RawString; var outp: TRawStringArray): TAnidbResult;
+var str: RawString;
   tm: cardinal;
   i: integer;
 begin
@@ -479,27 +509,27 @@ begin
     FSessionKey := '';
     i := 5;
     while (i <= Length(str)) and (str[i] <> ' ') do begin
-      FSessionKey := FSessionKey + str[i];
+      FSessionKey := FSessionKey + AnsiChar(str[i]);
       Inc(i);
     end;
 
    //The remainder is the message
     if (i <= Length(str)) then
      //str[i] is the separator
-      Result.msg := PAnsiChar(@str[i+1])
+      Result.msg := string(PAnsiChar(@str[i+1]))
     else
       Result.msg := '';
 
   end else
    //Default mode: everything to the right is message
     if Length(str) > 4 then
-      Result.msg := PAnsiChar(@str[5])
+      Result.msg := string(PAnsiChar(@str[5]))
     else
       Result.msg := '';
 end;
 
 //Automatically retries on SERVER_BUSY or on no answer.
-function TAnidbConnection.Exchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
+function TAnidbConnection.Exchange(cmd, params: RawString; var outp: TRawStringArray): TAnidbResult;
 var retries_left: integer;
   wait_interval: integer;
 begin
@@ -547,24 +577,27 @@ begin
   raise ECritical.Create('Anidb server is not accessible. Impossible to continue.');
 end;
 
-function TAnidbConnection.SessionExchange(cmd, params: AnsiString; var outp: TAnsiStringArray): TAnidbResult;
+function TAnidbConnection.SessionExchange(cmd, params: RawString; var outp: TRawStringArray): TAnidbResult;
 begin
   if params <> '' then
-    params := params + '&s='+FSessionKey
+    params := params + '&s=' + RawString(FSessionKey)
   else
-    params := 's='+FSessionKey;
+    params := 's='+RawString(FSessionKey);
   Result := Exchange(cmd, params, outp);
 end;
 
 function TAnidbConnection.Login(AUser: AnsiString; APass: AnsiString): TAnidbResult;
-var ans: TAnsiStringArray;
+var ans: TRawStringArray;
 begin
   Result := Exchange('AUTH',
-    'user='+AUser+'&'+
-    'pass='+APass+'&'+
-    'protover='+ProtoVer+'&'+
-    'client='+Client+'&'+
-    'clientver='+ClientVer,
+    'user='+RawString(AUser)+'&'+
+    'pass='+RawString(APass)+'&'+
+    'protover='+RawString(ProtoVer)+'&'+
+   {$IFDEF ENC_UTF8}
+    'enc=utf8&'+
+   {$ENDIF}
+    'client='+RawString(Client)+'&'+
+    'clientver='+RawString(ClientVer),
     ans);
 
   if (Result.code <> LOGIN_ACCEPTED)
@@ -573,7 +606,7 @@ begin
 end;
 
 procedure TAnidbConnection.Logout;
-var ans: TAnsiStringArray;
+var ans: TRawStringArray;
   res: TAnidbResult;
 begin
   res := SessionExchange('LOGOUT', '', ans);
@@ -589,7 +622,7 @@ begin
 end;
 
 //Boolean in andb
-function AnidbBool(value: boolean): AnsiString; inline;
+function AnidbBool(value: boolean): RawString; inline;
 begin
   if value then
     Result := '1'
@@ -612,29 +645,33 @@ begin
 end;
 
 //Datetime in anidb: string representation of integer
-function AnidbDatetime(dt: TDatetime): AnsiString;
+function AnidbDatetime(dt: TDatetime): RawString;
 begin
-  Result := AnsiString(IntToStr(DatetimeToUnix(dt)));
+  Result := RawString(IntToStr(DatetimeToUnix(dt)));
 end;
 
 //Strings in anidb: html encoded
-function AnidbString(s: string): AnsiString;
+function AnidbString(s: string): RawString;
 begin
  //For now just ignore bad stuff
  //TODO: newlines -> <BR /> or newlines -> nothing (depends on param)
+ {$IFDEF ENC_UTF8}
+  Result := HtmlEscape(s);
+ {$ELSE}
   Result := HtmlEscapeToAnsi(s);
+ {$ENDIF}
 end;
 
 
 function TAnidbConnection.MyListAdd(size: int64; ed2k: AnsiString;
   state: TAnidbFileState; edit: boolean): TAnidbResult;
-var ans: TAnsiStringArray;
-  s: AnsiString;
+var ans: TRawStringArray;
+  s: RawString;
 begin
-  s := 'size='+AnsiString(IntToStr(size))+'&ed2k='+ed2k+'&edit='+AnidbBool(edit);
+  s := 'size='+RawString(IntToStr(size))+'&ed2k='+RawString(ed2k)+'&edit='+AnidbBool(edit);
 
   if state.State_set then
-    s := s + '&state='+AnsiString(IntToStr(state.State));
+    s := s + '&state='+RawString(IntToStr(state.State));
   if state.Viewed_set then
     s := s + '&viewed='+AnidbBool(state.Viewed);
   if state.ViewDate_set then
@@ -646,11 +683,11 @@ begin
   if state.Other_set then
     s := s + '&other='+AnidbString(state.Other);
 
-  Result := SessionExchange('MYLISTADD', AnsiString(s), ans);
+  Result := SessionExchange('MYLISTADD', s, ans);
 end;
 
 function TAnidbConnection.MyListStats(out Stats: TAnidbMylistStats): TAnidbResult;
-var ans: TAnsiStringArray;
+var ans: TRawStringArray;
   vals: TStringArray;
 begin
   Result := SessionExchange('MYLISTSTATS', '', ans);

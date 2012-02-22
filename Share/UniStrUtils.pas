@@ -111,6 +111,27 @@ type
  //Обратная совместимость
   TStringArrayW = TWideStringArray;
 
+ {$IF CompilerVersion < 21}
+ //В старых версиях не объявлены, а ими удобно пользоваться
+  UCS2Char = WideChar;
+  PUCS2Char = PWideChar;
+  UCS4Char = type LongWord;
+  PUCS4Char = ^UCS4Char;
+
+  TUCS4CharArray = array [0..$effffff] of UCS4Char;
+  PUCS4CharArray = ^TUCS4CharArray;
+
+  UCS4String = array of UCS4Char;
+
+ //На старом компиляторе преобразований кодировки для AnsiString не выполняется,
+ //и она безопасна для UTF8 и RawByte как есть (в новых нужно указать флаги)
+  UTF8String = AnsiString;
+  PUTF8String = ^UTF8String;
+
+  RawByteString = AnsiString;
+  PRawByteString = ^RawByteString;
+ {$IFEND}
+
 
 {$IFDEF UNICODE}
 (*
