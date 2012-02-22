@@ -48,6 +48,10 @@ type
   TStreamExtender = class helper for TStream
     function ReadInt: integer; inline;
     procedure WriteInt(i: integer); inline;
+    function ReadStr: string; inline;
+    procedure WriteStr(s: string); inline;
+    function ReadBool: boolean; inline;
+    procedure WriteBool(b: boolean); inline;
   end;
 
 implementation
@@ -60,6 +64,32 @@ end;
 procedure TStreamExtender.WriteInt(i: integer);
 begin
   WriteBuffer(i, SizeOf(i));
+end;
+
+function TStreamExtender.ReadStr: string;
+var sz: integer;
+begin
+  ReadBuffer(sz, SizeOf(sz));
+  SetLength(Result, sz);
+  ReadBuffer(Result[1], sz*SizeOf(Result[1]));
+end;
+
+procedure TStreamExtender.WriteStr(s: string);
+var sz: integer;
+begin
+  sz := Length(s);
+  WriteBuffer(sz, SizeOf(sz));
+  WriteBuffer(s[1], sz*SizeOf(s[1]));
+end;
+
+function TStreamExtender.ReadBool: boolean;
+begin
+  ReadBuffer(Result, SizeOf(Result));
+end;
+
+procedure TStreamExtender.WriteBool(b: boolean);
+begin
+  WriteBuffer(b, SizeOf(b));
 end;
 
 constructor TFileDb.Create(AFilename: string);
@@ -133,6 +163,7 @@ end;
 procedure TFileDb.LoadFromStream(s: TStream);
 var i: integer;
 begin
+  Clear;
   SetLength(FFiles, s.ReadInt);
   for i := 0 to Length(FFiles) - 1 do
     FFiles[i] := nil;
@@ -140,10 +171,16 @@ begin
   try
     for i := 0 to Length(FFiles) - 1 do begin
       New(FFiles[i]);
-      s.ReadBuffer(FFiles[i]^, SizeOf(FFiles[i]^));
+      s.ReadBuffer(FFiles[i]^, integer(@FFiles[i].State.Source)-integer(FFiles[i])); //до State.Source
+      FFiles[i].State.Source := s.ReadStr;
+      FFiles[i].State.Source_set := s.ReadBool;
+      FFiles[i].State.Storage := s.ReadStr;
+      FFiles[i].State.Storage_set := s.ReadBool;
+      FFiles[i].State.Other := s.ReadStr;
+      FFiles[i].State.Other_set := s.ReadBool;
     end;
   except
-    Clear; //to not leave inconsistent array 
+    Clear; //to not leave inconsistent array
   end;
 end;
 
@@ -151,8 +188,15 @@ procedure TFileDb.SaveToStream(s: TStream);
 var i: integer;
 begin
   s.WriteInt(Length(FFiles));
-  for i := 0 to Length(FFiles) - 1 do
-    s.WriteBuffer(FFiles[i]^, SizeOf(FFiles[i]^));
+  for i := 0 to Length(FFiles) - 1 do begin
+    s.WriteBuffer(FFiles[i]^, integer(@FFiles[i].State.Source)-integer(FFiles[i])); //до State.Source
+    s.WriteStr(FFiles[i].State.Source);
+    s.WriteBool(FFiles[i].State.Source_set);
+    s.WriteStr(FFiles[i].State.Storage);
+    s.WriteBool(FFiles[i].State.Storage_set);
+    s.WriteStr(FFiles[i].State.Other);
+    s.WriteBool(FFiles[i].State.Other_set);
+  end;
 end;
 
 procedure TFileDb.LoadFromFile(Filename: string);

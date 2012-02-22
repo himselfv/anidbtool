@@ -73,7 +73,7 @@
 						<Source Name="MainSource">anidb.dpr</Source>
 					</Source>
 					<Parameters>
-						<Parameters Name="RunParams">mylistadd readme.avi /storage &quot;anime 4&quot; /source test /other &quot;sample string asd bsd&quot; /watchdate &quot;15.05.2011&quot;</Parameters>
+						<Parameters Name="RunParams">mylistadd test.mkv /storage &quot;anime 4&quot; /source &quot;testテスト&amp;storageテ&quot; /other &quot;sample string asd bsd&quot; /watchdate &quot;15.05.2011&quot;</Parameters>
 						<Parameters Name="UseLauncher">False</Parameters>
 						<Parameters Name="LoadAllSymbols">True</Parameters>
 						<Parameters Name="LoadUnspecifiedSymbols">False</Parameters>

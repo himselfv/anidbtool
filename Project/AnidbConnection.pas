@@ -1,9 +1,8 @@
 unit AnidbConnection;
+//Single-threaded usage only!
 
 interface
 uses SysUtils, DateUtils, WinSock, Windows, AnidbConsts, UniStrUtils;
-
-//Single-threaded usage only!
 
 type
   ESocketError = class(Exception)
@@ -623,7 +622,7 @@ function AnidbString(s: string): AnsiString;
 begin
  //For now just ignore bad stuff
  //TODO: newlines -> <BR /> or newlines -> nothing (depends on param)
-  Result := UrlEncode(s);
+  Result := HtmlEscapeToAnsi(s);
 end;
 
 

@@ -3,18 +3,12 @@ program anidb;
 {$APPTYPE CONSOLE}
 
 uses
-  SysUtils,
-  Classes,
-  Windows,
-  StrUtils,
+  SysUtils, Classes, Windows, StrUtils, UniStrUtils, DirectoryEnum,
   AnidbConnection in 'AnidbConnection.pas',
   AnidbConsts in 'AnidbConsts.pas',
   FileInfo in 'FileInfo.pas',
   SessionLock in 'SessionLock.pas',
-  md4,
-  ed2k,
-  UniStrUtils,
-  DirectoryEnum,
+  md4, ed2k,
   ParallelEd2k in 'ParallelEd2k.pas';
 
 type
@@ -274,6 +268,7 @@ begin
   f := nil;
 end;
 
+//Note that if filesize < size(lead_part), we'll never get here
 procedure TPartialHashChecker.OnLeadPartDone(Sender: TEd2kHasher; Lead: MD4Digest);
 begin
  //If configured to, try to use hash cache
@@ -303,7 +298,11 @@ begin
       ed2k := f.ed2k;
     end else begin
       ed2k := Hasher.ed2k;
-      f := FileDb.AddNew;
+     //try to find by a hash first
+     //we might have never had a chance to look by lead because the file was like 30 bytes (less than lead)
+      f := FileDb.FindByEd2k(ed2k);
+      if f=nil then
+        f := FileDb.AddNew;
       f.size := Hasher.FileSize;
       f.ed2k := Hasher.Ed2k;
       f.lead := Hasher.Lead;

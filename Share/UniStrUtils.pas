@@ -2,7 +2,7 @@ unit UniStrUtils;
 {$WEAKPACKAGEUNIT ON}
 
 interface
-uses SysUtils, Windows, StrUtils, WideStrUtils, IdURI;
+uses SysUtils, Windows, StrUtils, WideStrUtils;
 
 (*
  В библиотеке введён дополнительный тип: UniString.
@@ -42,6 +42,27 @@ uses SysUtils, Windows, StrUtils, WideStrUtils, IdURI;
  Например:
    IFDEF UNICODE          => string == UnicodeString       (по умолчанию включен юникод)
    IF CompilerVersion>=21 => UniString == UnicodeString    (юникод ДОСТУПЕН В ПРИНЦИПЕ)
+*)
+
+(*
+О скорости разных методов работы со строками.
+
+I. Приведение к PWideChar
+==============================
+@s[1] вызывает UniqueStringU
+PWideChar(s) вызывает WCharFromUStr
+
+Поэтому если нужно просто получить указатель, делайте:
+  PWideChar(pointer(s))+offset*SizeOf(WideChar)
+
+Это самый быстрый способ (в несколько раз быстрее, никаких вызовов).
+
+
+II. Length
+=============
+Зачем-то вызывает UniqueStringU.
+Если нужно просто проверить на непустоту, используйте:
+  pointer(s) <> nil
 *)
 
 const
@@ -254,6 +275,11 @@ function PrevChar(p: PAnsiChar; c: integer = 1): PAnsiChar; overload;
 function NextChar(p: PWideChar; c: integer = 1): PWideChar; overload;
 function PrevChar(p: PWideChar; c: integer = 1): PWideChar; overload;
 
+{ Арифметика указателей }
+function PwcOff(var a; n: integer): PWideChar; inline;
+function PwcCmp(var a; var b): integer; inline; overload;
+function PwcCmp(var a; an: integer; var b; bn: integer): integer; inline; overload;
+
 //Возвращает подстроку с заданного места и нужного размера.
 function StrSubLA(beg: PAnsiChar; len: integer): AnsiString;
 function StrSubLW(beg: PUniChar; len: integer): UniString;
@@ -269,10 +295,10 @@ function SubStrPch(beg, en: pchar): string;
 
 
 //Scans the specified string for the specfied character. Starts at position <start_at>.
-//Continues for <use_len> symbols. Returns first symbol index in string or -1 if not found any.
-function AnsiFindChar(s: AnsiString; c: AnsiChar; start_at: integer; use_len: integer): integer;
-function WideFindChar(s: UniString; c: UniChar; start_at: integer; use_len: integer): integer;
-function FindChar(s: string; c: char; start_at: integer; use_len: integer): integer;
+//Ends at <end_at> - 1 symbols. Returns first symbol index in string or -1 if not found any.
+function AnsiFindChar(s: AnsiString; c: AnsiChar; start_at: integer = 1; end_at: integer = -1): integer;
+function WideFindChar(s: UniString; c: UniChar; start_at: integer = 1; end_at: integer = -1): integer;
+function FindChar(s: string; c: char; start_at: integer = 1; end_at: integer = -1): integer;
 
 //Дополнения к стандартной дельфийской StrScan
 function StrScanA(str: PAnsiChar; chr: AnsiChar): PAnsiChar;
@@ -301,6 +327,12 @@ function StrScanEnd(str: PChar; symbols: PChar): PChar;
 function AnsiReadUpToNext(str: PAnsiChar; cs: AnsiString; out block: AnsiString): PAnsiChar;
 function WideReadUpToNext(str: PUniChar; cs: UniString; out block: UniString): PUniChar;
 function ReadUpToNext(str: PChar; cs: string; out block: string): PChar;
+
+//Сравнивает строки до окончания любой из них.
+function StrCmpNext(a, b: PChar): boolean; inline;
+
+//Возвращает длину совпадающего участка c начала строк, в символах, включая нулевой.
+function StrMatch(a, b: PChar): integer; inline;
 
 
 //Removes quote characters from around the string, if they exist.
@@ -414,6 +446,9 @@ type
 { Html encoding }
 
 function UrlEncode(s: UniString): AnsiString;
+function HtmlEscape(s: UniString): UniString;
+function HtmlEscapeObvious(s: UniString): UniString;
+function HtmlEscapeToAnsi(s: UniString): AnsiString;
 
 implementation
 
@@ -1347,6 +1382,30 @@ begin
   Result := PWideChar(integer(p) - SizeOf(WideChar)*c);
 end;
 
+
+////////////////////////////////////////////////////////////////////////////////
+///  Арифметика указателей
+
+//Возвращает указатель на n-й знак строки. Быстрее и безопасней, чем дельфийская хрень.
+//Отступ считает с единицы.
+function PwcOff(var a; n: integer): PWideChar;
+begin
+  Result := PWideChar(integer(a) + (n-1)*SizeOf(WideChar));
+end;
+
+//Сравнивает указатели. Больше нуля, если a>b.
+function PwcCmp(var a; var b): integer;
+begin
+  Result := integer(a)-integer(b);
+end;
+
+//Отступ считает с единицы.
+function PwcCmp(var a; an: integer; var b; bn: integer): integer;
+begin
+  Result := integer(a)+(an-1)*SizeOf(WideChar)-integer(b)-(bn-1)*SizeOf(WideChar);
+end;
+
+
 ////////////////////////////////////////////////////////////////////////////////
 ///  Возвращает строку между заданными позициями, или заданной длины
 
@@ -1428,35 +1487,41 @@ end;
 ///  Поиск символов в строке
 
 //Scans the specified string for the specfied character. Starts at position <start_at>.
-//Continues for <use_len> symbols. Returns first symbol index in string or -1 if not found any.
-function AnsiFindChar(s: AnsiString; c: AnsiChar; start_at: integer; use_len: integer): integer;
+//Ends at <end_at> symbols - 1. Returns first symbol index in string or -1 if not found any.
+function AnsiFindChar(s: AnsiString; c: AnsiChar; start_at: integer; end_at: integer): integer;
 var i: integer;
 begin
+  if end_at=-1 then
+    end_at := Length(s);
+
   Result := -1;
-  for i := start_at to use_len - 1 do
+  for i := start_at to end_at - 1 do
     if (s[i]=c) then begin
       Result := i;
       exit;
     end;
 end;
 
-function WideFindChar(s: UniString; c: UniChar; start_at: integer; use_len: integer): integer;
+function WideFindChar(s: UniString; c: UniChar; start_at: integer; end_at: integer): integer;
 var i: integer;
 begin
+  if end_at=-1 then
+    end_at := Length(s);
+
   Result := -1;
-  for i := start_at to use_len - 1 do
+  for i := start_at to end_at - 1 do
     if (s[i]=c) then begin
       Result := i;
       exit;
     end;
 end;
 
-function FindChar(s: string; c: char; start_at: integer; use_len: integer): integer;
+function FindChar(s: string; c: char; start_at: integer; end_at: integer): integer;
 begin
 {$IFDEF UNICODE}
-  Result := WideFindChar(s, c, start_at, use_len);
+  Result := WideFindChar(s, c, start_at, end_at);
 {$ELSE}
-  Result := AnsiFindChar(s, c, start_at, use_len);
+  Result := AnsiFindChar(s, c, start_at, end_at);
 {$ENDIF}
 end;
 
@@ -1609,6 +1674,28 @@ begin
 {$ENDIF}
 end;
 
+//Проверяет, что строки совпадают до окончания одной из них
+function StrCmpNext(a, b: PChar): boolean;
+begin
+  while (a^ = b^) and (a^<>#00) do begin //#00 не выедаем даже общий
+    Inc(a);
+    Inc(b);
+  end;
+  Result := (a^=#00) or (b^=#00);
+end;
+
+//Возвращает длину совпадающего участка c начала строк, в символах, включая нулевой.
+function StrMatch(a, b: PChar): integer;
+begin
+  Result := 0;
+  while (a^ = b^) and (a^<>#00) do begin //#00 не выедаем даже общий
+    Inc(a);
+    Inc(b);
+    Inc(Result);
+  end;
+ //сверяем #00
+  if (a^=b^) then Inc(Result);
+end;
 
 ////////////////////////////////////////////////////////////////////////////////
 ///  Удаление лишних символов по краям
@@ -2253,8 +2340,10 @@ begin
 end;
 
 
-//Кодирует строку в URI-форме: все нестандартные и юникод-символы в проценты,
-//пробелы в
+{ Функции кодирования в HTML-форматы. Пока сделаны медленно и просто,
+ при необходимости можно ускорить. }
+
+//Кодирует строку в URI-форме: "(te)(su)(to) str" -> "%E3%83%86%E3%82%B9%E3%83%88+str"
 //Пока сделано медленно и просто, при необходимости можно ускорить
 function UrlEncode(s: UniString): AnsiString;
 var i, j: integer;
@@ -2274,6 +2363,60 @@ begin
       for j := 1 to Length(U) do
         Result := Result + '%' + AnsiString(IntToHex(Ord(U[j]), 2));
     end;
+end;
+
+//Кодирует строку в HTML-форме. Заменяет только символы, которые не могут
+//встречаться в правильном HTML.
+//Все остальные юникод-символы остаются в нормальной форме.
+function HtmlEscape(s: UniString): UniString;
+var i: integer;
+begin
+  Result := '';
+  for i := 1 to Length(s) do
+    if s[i]='&' then Result := Result + '&amp;' else
+    if s[i]='''' then Result := Result + '&apos;' else
+    if s[i]='"' then Result := Result + '&quot;' else
+    if s[i]='<' then Result := Result + '&lt;' else
+    if s[i]='>' then Result := Result + '&gt;' else
+    Result := Result + s[i];
+end;
+
+//Кодирует строку в HTML-форме. Неизвестно, была ли строка закодирована до сих пор.
+//Пользователь мог закодировать некоторые последовательности, но забыть другие.
+//Поэтому кодируются только те символы, которые встречаться в итоговой строке
+//не могут никак:
+//   "asd &amp; bsd <esd>" --> "asd &amp; bsd &lt;esd&gt;"
+function HtmlEscapeObvious(s: UniString): UniString;
+var i: integer;
+begin
+  Result := '';
+  for i := 1 to Length(s) do
+   //& не кодируем
+    if s[i]='''' then Result := Result + '&apos;' else
+    if s[i]='"' then Result := Result + '&quot;' else
+    if s[i]='<' then Result := Result + '&lt;' else
+    if s[i]='>' then Result := Result + '&gt;' else
+    Result := Result + s[i];
+end;
+
+//Кодирует строку в HTML-форме. Заменяет все символы, не входящие в Ansi-набор.
+//  "(te)(su)(to) str" -> "&12486;&12473;&12488; str"
+//При необходимости можно сделать флаг "эскейпить в 16-ричные коды: &#x30DB;"
+function HtmlEscapeToAnsi(s: UniString): AnsiString;
+var i: integer;
+begin
+  Result := '';
+  for i := 1 to Length(s) do
+    if s[i]='&' then Result := Result + '&amp;' else
+    if s[i]='''' then Result := Result + '&apos;' else
+    if s[i]='"' then Result := Result + '&quot;' else
+    if s[i]='<' then Result := Result + '&lt;' else
+    if s[i]='>' then Result := Result + '&gt;' else
+   //ANSI-символы
+    if CharInSet(s[i], ['a'..'z', 'A'..'Z', '1'..'9', '0', ' ']) then
+      Result := Result + AnsiChar(s[i])
+    else
+      Result := Result + '&#'+AnsiString(IntToStr(word(s[i])))+';'
 end;
 
 
