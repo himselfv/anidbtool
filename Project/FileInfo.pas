@@ -3,6 +3,10 @@ unit FileInfo;
 interface
 uses SysUtils, Classes, Windows, MD4, AnidbConsts;
 
+//If set, FileDB will be saved to disk every time a change is made.
+//Otherwise it'll be only flushed on exit.
+{$DEFINE UPDATEDBOFTEN}
+
 type
   TFileInfo = record
     size: int64;
@@ -42,14 +46,15 @@ type
 
   public
     procedure Touch; //call to force loading db right now
-    procedure Changed; //call to instruct FileDb to save changes later
+    procedure Save; //to save DB at a critical points
+    procedure Changed; //call every time you make a change
   end;
 
   TStreamExtender = class helper for TStream
     function ReadInt: integer; inline;
     procedure WriteInt(i: integer); inline;
-    function ReadStr: string; inline;
-    procedure WriteStr(s: string); inline;
+    function ReadString: string; inline;
+    procedure WriteString(s: string); inline;
     function ReadBool: boolean; inline;
     procedure WriteBool(b: boolean); inline;
   end;
@@ -66,30 +71,29 @@ begin
   WriteBuffer(i, SizeOf(i));
 end;
 
-function TStreamExtender.ReadStr: string;
-var sz: integer;
+function TStreamExtender.ReadString: string;
 begin
-  ReadBuffer(sz, SizeOf(sz));
-  SetLength(Result, sz);
-  ReadBuffer(Result[1], sz*SizeOf(Result[1]));
+  SetLength(Result, ReadInt);
+  ReadBuffer(Result[1], Length(Result)*SizeOf(Result[1]));
 end;
 
-procedure TStreamExtender.WriteStr(s: string);
-var sz: integer;
+procedure TStreamExtender.WriteString(s: string);
 begin
-  sz := Length(s);
-  WriteBuffer(sz, SizeOf(sz));
-  WriteBuffer(s[1], sz*SizeOf(s[1]));
+  if Length(s)<=0 then
+    WriteInt(0)
+  else
+    WriteInt(Length(s));
+  WriteBuffer(s[1], Length(s)*SizeOf(s[1]));
 end;
 
 function TStreamExtender.ReadBool: boolean;
 begin
-  ReadBuffer(Result, SizeOf(Result));
+  Result := boolean(ReadInt);
 end;
 
 procedure TStreamExtender.WriteBool(b: boolean);
 begin
-  WriteBuffer(b, SizeOf(b));
+  WriteInt(integer(b));
 end;
 
 constructor TFileDb.Create(AFilename: string);
@@ -101,9 +105,7 @@ end;
 
 destructor TFileDb.Destroy;
 begin
- //Save data if needed
-  if FLoaded and FChanged then
-    SaveToFile(FFilename);
+  Save; //Even when UpdatingDBOften, no harm in checking FChanged again
 
  //Free memory
   Clear;
@@ -119,7 +121,8 @@ begin
   SetLength(FFiles, Length(FFiles)+1);
   FFiles[Length(FFiles)-1] := Result;
 
-  Changed;
+ //Don't call Changed() just now because the data's still not set.
+ //Clients must call Changed() after populating new record with (maybe default) info.
 end;
 
 function TFileDb.FindByEd2k(ed2k: MD4Digest): PFileInfo;
@@ -171,12 +174,14 @@ begin
   try
     for i := 0 to Length(FFiles) - 1 do begin
       New(FFiles[i]);
-      s.ReadBuffer(FFiles[i]^, integer(@FFiles[i].State.Source)-integer(FFiles[i])); //до State.Source
-      FFiles[i].State.Source := s.ReadStr;
+      s.ReadBuffer(FFiles[i]^, integer(@FFiles[i]^.State) - integer(@FFiles[i]^));
+      s.ReadBuffer(FFiles[i]^.State, integer(@FFiles[i]^.State.Source) - integer(@FFiles[i]^.State));
+     { Остаток - строки }
+      FFiles[i].State.Source := s.ReadString;
       FFiles[i].State.Source_set := s.ReadBool;
-      FFiles[i].State.Storage := s.ReadStr;
+      FFiles[i].State.Storage := s.ReadString;
       FFiles[i].State.Storage_set := s.ReadBool;
-      FFiles[i].State.Other := s.ReadStr;
+      FFiles[i].State.Other := s.ReadString;
       FFiles[i].State.Other_set := s.ReadBool;
     end;
   except
@@ -189,12 +194,14 @@ var i: integer;
 begin
   s.WriteInt(Length(FFiles));
   for i := 0 to Length(FFiles) - 1 do begin
-    s.WriteBuffer(FFiles[i]^, integer(@FFiles[i].State.Source)-integer(FFiles[i])); //до State.Source
-    s.WriteStr(FFiles[i].State.Source);
+    s.WriteBuffer(FFiles[i]^, integer(@FFiles[i]^.State) - integer(@FFiles[i]^));
+    s.WriteBuffer(FFiles[i]^.State, integer(@FFiles[i]^.State.Source) - integer(@FFiles[i]^.State));
+   { Остаток - строки }
+    s.WriteString(FFiles[i].State.Source);
     s.WriteBool(FFiles[i].State.Source_set);
-    s.WriteStr(FFiles[i].State.Storage);
+    s.WriteString(FFiles[i].State.Storage);
     s.WriteBool(FFiles[i].State.Storage_set);
-    s.WriteStr(FFiles[i].State.Other);
+    s.WriteString(FFiles[i].State.Other);
     s.WriteBool(FFiles[i].State.Other_set);
   end;
 end;
@@ -230,9 +237,22 @@ begin
   end;
 end;
 
+procedure TFileDb.Save;
+begin
+ //Save data if needed
+  if FLoaded and FChanged then
+    SaveToFile(FFilename);
+  FChanged := false;
+end;
+
 procedure TFileDb.Changed;
 begin
+ {$IFDEF UPDATEDBOFTEN}
   FChanged := true;
+  Save; //Right now
+ {$ELSE}
+  FChanged := true; //Will save at a later time
+ {$ENDIF}
 end;
 
 end.

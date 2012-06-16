@@ -2,6 +2,10 @@ program anidb;
 
 {$APPTYPE CONSOLE}
 
+//If set, uses multi-threaded hasher instead of a simple single-threaded one.
+//Try disabling when debugging hashing problems.
+{$DEFINE THREADEDHASHER}
+
 uses
   SysUtils, Classes, Windows, StrUtils, UniStrUtils, DirectoryEnum,
   AnidbConnection in 'AnidbConnection.pas',
@@ -138,7 +142,11 @@ begin
   end;
 
  //Create hasher
+ {$IFDEF THREADEDHASHER}
   Hasher := TParallelEd2kHasher.Create;
+ {$ELSE}
+  Hasher := TSimpleEd2kHasher.Create;
+ {$ENDIF}
 
  //Open file database
   FileDb := TFileDb.Create(FileDbFilename);
@@ -271,9 +279,12 @@ end;
 //Note that if filesize < size(lead_part), we'll never get here
 procedure TPartialHashChecker.OnLeadPartDone(Sender: TEd2kHasher; Lead: MD4Digest);
 begin
- //If configured to, try to use hash cache
+ //Many features require the FileDB record so we find it here in any case
+ //(even if we are going to hash to the end)
   f := FileDb.FindByLead(lead);
-  if Assigned(f) then
+
+ //If configured to use cached hashed, don't scan any further
+  if ProgramOptions.UseCachedHashes and Assigned(f) then
     Sender.Terminated := true;
 end;
 
@@ -290,23 +301,43 @@ begin
 
     Size := Hasher.FileSize;
 
-   //If we have stopped hashing because we encountered a partial hash hit, use stored hash.
-    if Checker.f<>nil then begin
+   //we might have never had a chance to look by lead because the file was like 30 bytes (less than lead in size => no OnLeadPartDone call)
+    if (f=nil) and (Size < ED2K_CHUNK_SIZE) then
+      f := FileDb.FindByEd2k(ed2k);
+
+   //DB record not found
+    if Checker.f=nil then
+      if ProgramOptions.UpdateCache then begin
+        ed2k := Hasher.Ed2k;
+        f := FileDb.AddNew;
+        f.size := Hasher.FileSize;
+        f.ed2k := Hasher.Ed2k;
+        f.lead := Hasher.Lead;
+        FileDb.Changed; //contains only hash for now
+      end else
+      begin end //not updating => no record
+    else
+   //Record found + using cached hashes
+    if ProgramOptions.UseCachedHashes then begin
       f := Checker.f;
       if ProgramOptions.Verbose then
         writeln('Partial hash found, using cache.');
       ed2k := f.ed2k;
-    end else begin
-      ed2k := Hasher.ed2k;
-     //try to find by a hash first
-     //we might have never had a chance to look by lead because the file was like 30 bytes (less than lead)
-      f := FileDb.FindByEd2k(ed2k);
-      if f=nil then
-        f := FileDb.AddNew;
-      f.size := Hasher.FileSize;
-      f.ed2k := Hasher.Ed2k;
-      f.lead := Hasher.Lead;
+    end else
+   //Record found + not using cached hashes + updating record
+    if ProgramOptions.UpdateCache then begin
+      ed2k := Hasher.Ed2k;
+      f := Checker.f;
+      if ProgramOptions.Verbose then
+        writeln('Updating partial=>full hash assignment.');
+      f.ed2k := ed2k;
+      FileDb.Changed;
+    end else
+   //Record found + not using it + not updating => just keep it for IgnoringUnchangedFiles later.
+    begin
+      f := Checker.f;
     end;
+
   finally
     FreeAndNil(Checker);
   end;
@@ -350,7 +381,7 @@ begin
 
   if ProgramOptions.IgnoreUnchangedFiles
   and Assigned(f) and (f.StateSet) then begin
-   //First we disable all the info which haven't been changed
+   //Disable all the info which haven't been changed
     if f.State.State_set and AnidbOptions.FileState.State_set
     and (f.State.State = AnidbOptions.FileState.State) then
       AnidbOptions.FileState.State_set := false;
@@ -364,15 +395,15 @@ begin
       AnidbOptions.FileState.ViewDate_set := false;
 
     if f.State.Source_set and AnidbOptions.FileState.Source_set
-    and (f.State.Source = AnidbOptions.FileState.Source) then
+    and SameStr(f.State.Source, AnidbOptions.FileState.Source) then
       AnidbOptions.FileState.Source_set := false;
 
     if f.State.Storage_set and AnidbOptions.FileState.Storage_set
-    and (f.State.Storage = AnidbOptions.FileState.Storage) then
+    and SameStr(f.State.Storage, AnidbOptions.FileState.Storage) then
       AnidbOptions.FileState.Storage_set := false;
 
     if f.State.Other_set and AnidbOptions.FileState.Other_set
-    and (f.State.Other = AnidbOptions.FileState.Other) then
+    and SameStr(f.State.Other, AnidbOptions.FileState.Other) then
       AnidbOptions.FileState.Other_set := false;
 
    //Now if there's nothing to change then skip the file
@@ -382,19 +413,24 @@ begin
       exit;
     end;
 
-   //Else just write the stuff that was changed
   end;
 
- //If the file is in cache, we're sure it's already in mylist, so just edit it. 
+ //If the file is in cache, we're sure it's already in mylist, so just edit it.
   EditMode := AnidbOptions.EditMode or (Assigned(f) and f.StateSet);
 
+ //AniDB will complain if we EDIT and have no fields to set
+  if EditMode and not AfsSomethingIsSet(AnidbOptions.FileState) then begin
+    writeln('File already in AniDB and nothing to set about it: ignoring.');
+    Result := true;
+    exit;
+  end;
 
   res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, EditMode);
   if (res.code=INVALID_SESSION)
   or (res.code=LOGIN_FIRST)
   or (res.code=LOGIN_FAILED) then begin
     if ProgramOptions.Verbose then
-      writeln(res.ToString);  
+      writeln(res.ToString);
     writeln('Session is obsolete, restoring...');
     AnidbServer.SessionKey := '';
     AnidbServer.Login(AnsiString(Config.Values['User']), AnsiString(Config.Values['Pass']));
@@ -405,10 +441,11 @@ begin
     res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, EditMode);
   end;
 
-
  //If we were already editing and not adding, no need to try editing again
   if (not EditMode) and (ProgramOptions.AutoEditExisting)
-  and (res.code = FILE_ALREADY_IN_MYLIST) then begin
+  and (res.code = FILE_ALREADY_IN_MYLIST)
+ //AniDB will complain if we EDIT and have no fields to set
+  and AfsSomethingIsSet(AnidbOptions.FileState) then begin
     if ProgramOptions.Verbose then
       writeln(res.ToString);
     writeln('File in mylist, editing...');

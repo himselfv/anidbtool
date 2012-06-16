@@ -147,6 +147,13 @@ type
   Так что здесь представлены "честные" функции для Ansi-строк.
 *)
 
+function AnsiPos(const Substr, S: AnsiString): Integer;
+
+function AnsiStringReplace(const S, OldPattern, NewPattern: AnsiString;
+  Flags: TReplaceFlags): AnsiString;
+function AnsiReplaceStr(const AText, AFromText, AToText: AnsiString): AnsiString; inline;
+function AnsiReplaceText(const AText, AFromText, AToText: AnsiString): AnsiString; inline;
+
 function AnsiUpperCase(const S: AnsiString): AnsiString;
 function AnsiLowerCase(const S: AnsiString): AnsiString;
 function AnsiCompareStr(const S1, S2: AnsiString): Integer;
@@ -355,6 +362,9 @@ function StrCmpNext(a, b: PChar): boolean; inline;
 //Возвращает длину совпадающего участка c начала строк, в символах, включая нулевой.
 function StrMatch(a, b: PChar): integer; inline;
 
+//Пропускает все символы до первого, не входящего в chars (null-term string)
+procedure SkipChars(var pc: PChar; chars: PChar);
+
 
 //Removes quote characters from around the string, if they exist.
 //Duplicate: UniDequotedStr, although this one is more powerful
@@ -478,6 +488,62 @@ implementation
 (*
   Все реализации скопированы у Борланд.
 *)
+
+function AnsiPos(const Substr, S: AnsiString): Integer;
+var
+  P: PAnsiChar;
+begin
+  Result := 0;
+  P := AnsiStrPos(PAnsiChar(S), PAnsiChar(SubStr));
+  if P <> nil then
+    Result := (Integer(P) - Integer(PAnsiChar(S))) div SizeOf(AnsiChar) + 1;
+end;
+
+function AnsiStringReplace(const S, OldPattern, NewPattern: AnsiString;
+  Flags: TReplaceFlags): AnsiString;
+var
+  SearchStr, Patt, NewStr: AnsiString;
+  Offset: Integer;
+begin
+  if rfIgnoreCase in Flags then
+  begin
+    SearchStr := AnsiUpperCase(S);
+    Patt := AnsiUpperCase(OldPattern);
+  end else
+  begin
+    SearchStr := S;
+    Patt := OldPattern;
+  end;
+  NewStr := S;
+  Result := '';
+  while SearchStr <> '' do
+  begin
+    Offset := AnsiPos(Patt, SearchStr);
+    if Offset = 0 then
+    begin
+      Result := Result + NewStr;
+      Break;
+    end;
+    Result := Result + Copy(NewStr, 1, Offset - 1) + NewPattern;
+    NewStr := Copy(NewStr, Offset + Length(OldPattern), MaxInt);
+    if not (rfReplaceAll in Flags) then
+    begin
+      Result := Result + NewStr;
+      Break;
+    end;
+    SearchStr := Copy(SearchStr, Offset + Length(Patt), MaxInt);
+  end;
+end;
+
+function AnsiReplaceStr(const AText, AFromText, AToText: AnsiString): AnsiString;
+begin
+  Result := AnsiStringReplace(AText, AFromText, AToText, [rfReplaceAll]);
+end;
+
+function AnsiReplaceText(const AText, AFromText, AToText: AnsiString): AnsiString;
+begin
+  Result := AnsiStringReplace(AText, AFromText, AToText, [rfReplaceAll, rfIgnoreCase]);
+end;
 
 function AnsiUpperCase(const S: AnsiString): AnsiString;
 var
@@ -1716,6 +1782,24 @@ begin
   end;
  //сверяем #00
   if (a^=b^) then Inc(Result);
+end;
+
+procedure SkipChars(var pc: PChar; chars: PChar);
+var pcc: PChar;
+begin
+  while pc^<>#00 do begin
+    pcc := chars;
+    while pcc^<>#00 do
+      if pcc^=pc^ then begin
+        pcc := nil;
+        break;
+      end else
+        Inc(pcc);
+    if pcc=nil then //skip char
+      Inc(pc)
+    else
+      exit; //non-skip char
+  end;
 end;
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -2,10 +2,10 @@ unit AnidbConnection;
 //Single-threaded usage only!
 
 interface
-uses SysUtils, DateUtils, WinSock, Windows, AnidbConsts, UniStrUtils;
+uses SysUtils, DateUtils, WinSock, Windows, AnidbConsts, StrUtils, UniStrUtils;
 
 //Use UTF8 instead of ANSI+HTML_encoding
-//{$DEFINE ENC_UTF8}
+{$DEFINE ENC_UTF8}
 
 type
 {$IFDEF ENC_UTF8}
@@ -15,6 +15,7 @@ type
   RawString = AnsiString;
   RawChar = AnsiChar;
 {$ENDIF}
+  PRawChar = ^RawChar;
 
 type
   ESocketError = class(Exception)
@@ -463,7 +464,7 @@ begin
 
  //Last block
   SetLength(Result[sepcnt], Length(s)-last_sep);
-  Move(s[last_sep+1], Result[sepcnt][1], Length(s)-last_sep);
+  Move(s[last_sep+1], Result[sepcnt][1], (Length(s)-last_sep)*sizeof(s[last_sep+1]));
 end;
 
 constructor TAnidbConnection.Create;
@@ -494,7 +495,7 @@ begin
     raise ESocketError.Create('Illegal answer from server');
 
   str := outp[0];
- //At least code should be there
+ //At least the code should be there
   if (Length(str) < 3)
   or not TryStrToInt(string(str[1] + str[2] + str[3]), Result.code) then
     raise ESocketError.Create('Illegal answer from server');
@@ -516,14 +517,14 @@ begin
    //The remainder is the message
     if (i <= Length(str)) then
      //str[i] is the separator
-      Result.msg := string(PAnsiChar(@str[i+1]))
+      Result.msg := string(PRawChar(@str[i+1]))
     else
       Result.msg := '';
 
   end else
    //Default mode: everything to the right is message
     if Length(str) > 4 then
-      Result.msg := string(PAnsiChar(@str[5]))
+      Result.msg := string(PRawChar(@str[5]))
     else
       Result.msg := '';
 end;
@@ -650,16 +651,55 @@ begin
   Result := RawString(IntToStr(DatetimeToUnix(dt)));
 end;
 
-//Strings in anidb: html encoded
-function AnidbString(s: string): RawString;
+function RawReplaceStr(const AText, AFromText, AToText: RawString): RawString; inline;
 begin
- //For now just ignore bad stuff
- //TODO: newlines -> <BR /> or newlines -> nothing (depends on param)
+{$IFDEF ENC_UTF8}
+  Result := UniReplaceStr(AText, AFromText, AToText);
+{$ELSE}
+  Result := AnsiReplaceStr(AText, AFromText, AToText);
+{$ENDIF}
+end;
+
+type
+  TAnidbStringOption = (
+  	asoNoNewlines //remove all newlines instead of replacing them with "<br />"
+  );
+  TAnidbStringOptions = set of TAnidbStringOption;
+
+//Strings in anidb: html encoded
+function AnidbString(s: string; opt: TAnidbStringOptions=[]): RawString;
+var r: RawString;
+begin
+ {
+  Anidb uses some kind of a strange encoding scheme.
+  They declare it as "form encoding scheme" and &param=value+value would
+  have been logical but it doesn't work. Neither does value%20value.
+  &amp; works but other %#321; codes don't.
+
+  Newlines are replaced with <br />s per documentation, but not allowed
+  in some cases.
+ }
+
+ //First we either escape HTML tags or HTML tags+all non-unicode chars,
+ //depending on encoding scheme used
  {$IFDEF ENC_UTF8}
-  Result := HtmlEscape(s);
+  r := HtmlEscape(s);
  {$ELSE}
-  Result := HtmlEscapeToAnsi(s);
+  r := HtmlEscapeToAnsi(s);
  {$ENDIF}
+
+ //Next we escape Anidb-specific stuff
+  { Slow, can be made faster }
+  if asoNoNewlines in opt then begin
+    r := RawReplaceStr(r, #13, '');
+    r := RawReplaceStr(r, #10, '');
+  end else begin
+    r := RawReplaceStr(r, #13#10, '<br />');
+    r := RawReplaceStr(r, #13, '<br />');
+    r := RawReplaceStr(r, #10, '<br />');
+  end;
+
+  Result := r;
 end;
 
 

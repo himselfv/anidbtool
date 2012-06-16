@@ -187,7 +187,7 @@ begin
         FOnLeadPartDone(Self, Parts[0]);
 
     Inc(PartIndex)
-  until (PartIndex > Length(Parts)) or Terminated;
+  until (PartIndex >= Length(Parts)) or Terminated;
 
  { Finalize hash }
   Lead := Parts[0];
@@ -199,6 +199,8 @@ begin
   MD4Init(Context);
   MD4Update(Context, @Parts[0], Length(Parts)*SizeOf(Md4Digest));
   MD4Final(Context, Ed2k);
+
+  CloseHandle(h);
 
  {$IFDEF HASH_STATS}
   TotalTime := TotalTime + GetTickCount-total_tm;
@@ -411,7 +413,7 @@ begin
     Workers[Worker].WakeUp;
 
     Inc(PartIndex)
-  until (PartIndex > Length(Parts)) or Terminated;
+  until (PartIndex >= Length(Parts)) or Terminated;
 
  { Wait for all workers to finish their jobs }
   WaitAllWorkersFree;
@@ -426,6 +428,8 @@ begin
   MD4Init(Context);
   MD4Update(Context, @Parts[0], Length(Parts)*SizeOf(Md4Digest));
   MD4Final(Context, Ed2k);
+
+  CloseHandle(h);
 
  {$IFDEF HASH_STATS}
   TotalTime := TotalTime + GetTickCount-total_tm;
