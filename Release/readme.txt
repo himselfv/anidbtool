@@ -175,6 +175,7 @@ You can rename files as much as you want. Anidb tool identifies files by their h
 
 Version Info
 ===================
+18.06.2012 - Numerous bugfixes (files being wrongly hashed, not cached), empty edits are now not sent (no point, save time), hashed files are cached even on abort, hashing/adding/editing stats, disables auto-sleep while running.
 28.12.2011 - Added /source, /storage, /other, /watchdate settings. Fields which weren't changed are now kept as they are on server. File Cache format changed, please purge the cache.
 05.09.2011 - Optimized hasher for multithreading.
 25.10.2009 - Added file cache, hash cache. Improved network stability.

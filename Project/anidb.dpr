@@ -43,6 +43,15 @@ type
     procedure NoAnswer(Sender: TAnidbConnection; wait_interval: cardinal);
   end;
 
+  TProgramStats = record
+    HashedFiles: integer;       //full hash calculated
+    HashCachedFiles: integer;   //cached hash used
+    AddedFiles: integer;        //added to AniDB
+    EditedFiles: integer;       //edited on AniDB
+    IgnoredFiles: integer;      //ignored because of filter
+    UnchangedFiles: integer;    //ignored because unchanged
+  end;
+
 var
   Config: TStringList;
   SessionInfo: TSessionLock;
@@ -56,6 +65,7 @@ var
 
   ProgramOptions: TProgramOptions;
   AnidbOptions: TAnidbOptions;
+  Stats: TProgramStats;
 
   Hasher: TEd2kHasher;
 
@@ -188,6 +198,8 @@ begin
   if SetThreadExecutionState(ES_CONTINUOUS or ES_SYSTEM_REQUIRED) = 0 then
     if ProgramOptions.Verbose then
       writeln('Failed to disable auto-sleep while running.');
+
+  ZeroMemory(@Stats, SizeOf(Stats));
 
  //Connect to anidb (well, formally; UDP has no connections in practice)
   AnidbServer.Connect(AnsiString(Config.Values['Host']), FPort);
@@ -323,8 +335,13 @@ begin
     Size := Hasher.FileSize;
 
    //we might have never had a chance to look by lead because the file was like 30 bytes (less than lead in size => no OnLeadPartDone call)
-    if (f=nil) and (Size < ED2K_CHUNK_SIZE) then
-      f := FileDb.FindByEd2k(ed2k);
+    if (Checker.f=nil) and (Size < ED2K_CHUNK_SIZE) then
+      Checker.f := FileDb.FindByEd2k(ed2k);
+
+    if (Checker.f<>nil) and ProgramOptions.UseCachedHashes then
+      Inc(Stats.HashCachedFiles)
+    else
+      Inc(Stats.HashedFiles);
 
    //DB record not found
     if Checker.f=nil then begin
@@ -433,6 +450,7 @@ begin
    //Now if there's nothing to change then skip the file
     if not AfsSomethingIsSet(fs) then begin
       writeln('File unchanged, ignoring.');
+      Inc(Stats.IgnoredFiles);
       Result := true;
       exit;
     end;
@@ -445,6 +463,7 @@ begin
  //AniDB will complain if we EDIT and have no fields to set
   if EditMode and not AfsSomethingIsSet(fs) then begin
     writeln('File already in AniDB and nothing to set about it: ignoring.');
+    Inc(Stats.UnchangedFiles);
     Result := true;
     exit;
   end;
@@ -465,6 +484,11 @@ begin
     res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), fs, EditMode);
   end;
 
+  if res.code=MYLIST_ENTRY_ADDED then
+    Inc(Stats.AddedFiles);
+  if res.code=MYLIST_ENTRY_EDITED then
+    Inc(Stats.EditedFiles);
+
  //AniDB will complain if we EDIT and have no fields to set
   if (res.code = FILE_ALREADY_IN_MYLIST)
   and not AfsSomethingIsSet(fs) then
@@ -481,6 +505,9 @@ begin
 
    //Trying again, editing this time
     res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), fs, {EditMode=}true);
+
+    if res.code=MYLIST_ENTRY_EDITED then
+      Inc(Stats.EditedFiles);
   end;
 
   writeln(res.ToString);
@@ -845,6 +872,10 @@ begin
       Exec_Hash(file_name);
       writeln('');
     end;
+
+   //Output stats
+    writeln('Hashed files: '+IntToStr(Stats.HashedFiles));
+    writeln('Used cached hashe: '+IntToStr(Stats.HashCachedFiles));
   end else
 
  //Mylistadd
@@ -895,6 +926,14 @@ begin
 
       end;
     end;
+
+   //Output stats
+    writeln('Hashed files: '+IntToStr(Stats.HashedFiles));
+    writeln('Used cached hashe: '+IntToStr(Stats.HashCachedFiles));
+    writeln('Added files: '+IntToStr(Stats.AddedFiles));
+    writeln('Edited files: '+IntToStr(Stats.EditedFiles));
+    writeln('Ignored files: '+IntToStr(Stats.IgnoredFiles));
+    writeln('Unchanged files: '+IntToStr(Stats.UnchangedFiles));
 
    //If there were more than one file, output summary information
     if Length(files) > 1 then
