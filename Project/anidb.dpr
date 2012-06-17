@@ -386,6 +386,7 @@ var
   res: TAnidbResult;
   f: PFileInfo;
   EditMode: boolean;
+  fs: TAnidbFileState; //resulting file state to set
 begin
   if not AnidbServer.LoggedIn then begin
     AnidbServer.Login(AnsiString(Config.Values['User']), AnsiString(Config.Values['Pass']));
@@ -400,35 +401,36 @@ begin
  //softly support it from upper levels too.
   HashFile(fname, f_size, f_ed2k, f);
 
+  fs := AnidbOptions.FileState; //AnidbOptions.FileState is shared by many files
   if ProgramOptions.IgnoreUnchangedFiles
   and Assigned(f) and (f.StateSet) then begin
    //Disable all the info which haven't been changed
-    if f.State.State_set and AnidbOptions.FileState.State_set
-    and (f.State.State = AnidbOptions.FileState.State) then
-      AnidbOptions.FileState.State_set := false;
+    if f.State.State_set and fs.State_set
+    and (f.State.State = fs.State) then
+      fs.State_set := false;
 
-    if f.State.Viewed_set and AnidbOptions.FileState.Viewed_set
-    and (f.State.Viewed = AnidbOptions.FileState.Viewed) then
-      AnidbOptions.FileState.Viewed_set := false;
+    if f.State.Viewed_set and fs.Viewed_set
+    and (f.State.Viewed = fs.Viewed) then
+      fs.Viewed_set := false;
 
-    if f.State.ViewDate_set and AnidbOptions.FileState.ViewDate_set
-    and (f.State.ViewDate = AnidbOptions.FileState.ViewDate) then
-      AnidbOptions.FileState.ViewDate_set := false;
+    if f.State.ViewDate_set and fs.ViewDate_set
+    and (f.State.ViewDate = fs.ViewDate) then
+      fs.ViewDate_set := false;
 
-    if f.State.Source_set and AnidbOptions.FileState.Source_set
-    and SameStr(f.State.Source, AnidbOptions.FileState.Source) then
-      AnidbOptions.FileState.Source_set := false;
+    if f.State.Source_set and fs.Source_set
+    and SameStr(f.State.Source, fs.Source) then
+      fs.Source_set := false;
 
-    if f.State.Storage_set and AnidbOptions.FileState.Storage_set
-    and SameStr(f.State.Storage, AnidbOptions.FileState.Storage) then
-      AnidbOptions.FileState.Storage_set := false;
+    if f.State.Storage_set and fs.Storage_set
+    and SameStr(f.State.Storage, fs.Storage) then
+      fs.Storage_set := false;
 
-    if f.State.Other_set and AnidbOptions.FileState.Other_set
-    and SameStr(f.State.Other, AnidbOptions.FileState.Other) then
-      AnidbOptions.FileState.Other_set := false;
+    if f.State.Other_set and fs.Other_set
+    and SameStr(f.State.Other, fs.Other) then
+      fs.Other_set := false;
 
    //Now if there's nothing to change then skip the file
-    if not AfsSomethingIsSet(AnidbOptions.FileState) then begin
+    if not AfsSomethingIsSet(fs) then begin
       writeln('File unchanged, ignoring.');
       Result := true;
       exit;
@@ -440,13 +442,13 @@ begin
   EditMode := AnidbOptions.EditMode or (Assigned(f) and f.StateSet);
 
  //AniDB will complain if we EDIT and have no fields to set
-  if EditMode and not AfsSomethingIsSet(AnidbOptions.FileState) then begin
+  if EditMode and not AfsSomethingIsSet(fs) then begin
     writeln('File already in AniDB and nothing to set about it: ignoring.');
     Result := true;
     exit;
   end;
 
-  res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, EditMode);
+  res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), fs, EditMode);
   if (res.code=INVALID_SESSION)
   or (res.code=LOGIN_FIRST)
   or (res.code=LOGIN_FAILED) then begin
@@ -459,12 +461,12 @@ begin
     writeln('Logged in');
 
    //Retry
-    res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, EditMode);
+    res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), fs, EditMode);
   end;
 
  //AniDB will complain if we EDIT and have no fields to set
   if (res.code = FILE_ALREADY_IN_MYLIST)
-  and AfsSomethingIsSet(AnidbOptions.FileState) then
+  and AfsSomethingIsSet(fs) then
    //Trick the rest of the code into thinking we successfully edited the file
    //(Or it'll be marked as failed for the user)
     res.code := MYLIST_ENTRY_EDITED;
@@ -477,7 +479,7 @@ begin
     writeln('File in mylist, editing...');
 
    //Trying again, editing this time
-    res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, {EditMode=}true);
+    res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), fs, {EditMode=}true);
   end;
 
   writeln(res.ToString);
@@ -491,7 +493,7 @@ begin
     Assert(Assigned(f), 'UpdateCache is on and yet cache record is not assigned.');
 
    { Merge state }
-    AfsUpdate(f.State, AnidbOptions.FileState);
+    AfsUpdate(f.State, fs);
     f.StateSet := true;
     FileDb.Changed;
   end;
