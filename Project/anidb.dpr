@@ -327,7 +327,7 @@ begin
       f := FileDb.FindByEd2k(ed2k);
 
    //DB record not found
-    if Checker.f=nil then
+    if Checker.f=nil then begin
       if ProgramOptions.UpdateCache then begin
         ed2k := Hasher.Ed2k;
         f := FileDb.AddNew;
@@ -336,7 +336,8 @@ begin
         f.lead := Hasher.Lead;
         FileDb.Changed; //contains only hash for now
       end else
-      begin end //not updating => no record
+      begin end; //not updating => no record
+    end
     else
    //Record found + using cached hashes
     if ProgramOptions.UseCachedHashes then begin
@@ -466,7 +467,7 @@ begin
 
  //AniDB will complain if we EDIT and have no fields to set
   if (res.code = FILE_ALREADY_IN_MYLIST)
-  and AfsSomethingIsSet(fs) then
+  and not AfsSomethingIsSet(fs) then
    //Trick the rest of the code into thinking we successfully edited the file
    //(Or it'll be marked as failed for the user)
     res.code := MYLIST_ENTRY_EDITED;
