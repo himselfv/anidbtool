@@ -85,6 +85,18 @@ begin
   writeln('See help file for other options.');
 end;
 
+//These are missing in windows.pas
+type
+  EXECUTION_STATE = DWORD;
+
+const
+  ES_SYSTEM_REQUIRED = $00000001;
+  ES_DISPLAY_REQUIRED = $00000002;
+  ES_USER_PRESENT = $00000004;
+  ES_AWAYMODE_REQUIRED = $00000040; //Vista+
+  ES_CONTINUOUS = $80000000;
+
+function SetThreadExecutionState(esFlags: EXECUTION_STATE): EXECUTION_STATE; stdcall; external kernel32;
 
 procedure App_Init;
 var FPort: integer;
@@ -171,7 +183,12 @@ begin
   TryStrToBool(Config.Values['Verbose'], ProgramOptions.Verbose);
   ProgramOptions.IgnoreExtensions := Config.Values['IgnoreExtensions'];
   ProgramOptions.UseOnlyExtensions := Config.Values['UseOnlyExtensions'];
-  
+
+ //Don't go to sleep on us
+  if SetThreadExecutionState(ES_CONTINUOUS or ES_SYSTEM_REQUIRED) = 0 then
+    if ProgramOptions.Verbose then
+      writeln('Failed to disable auto-sleep while running.');
+
  //Connect to anidb (well, formally; UDP has no connections in practice)
   AnidbServer.Connect(AnsiString(Config.Values['Host']), FPort);
 end;
@@ -194,6 +211,10 @@ end;
 procedure App_Deinit;
 begin
   App_SaveSessionInfo;
+
+ //Enable going to sleep (though it will be enabled when the thread terminates anyway)
+  SetThreadExecutionState(ES_CONTINUOUS);
+
   FreeAndNil(FileDb);
   FreeAndNil(SessionInfo);
   FreeAndNil(Hasher);
@@ -441,11 +462,16 @@ begin
     res := AnidbServer.MyListAdd(f_size, AnsiString(Md4ToString(f_ed2k)), AnidbOptions.FileState, EditMode);
   end;
 
+ //AniDB will complain if we EDIT and have no fields to set
+  if (res.code = FILE_ALREADY_IN_MYLIST)
+  and AfsSomethingIsSet(AnidbOptions.FileState) then
+   //Trick the rest of the code into thinking we successfully edited the file
+   //(Or it'll be marked as failed for the user)
+    res.code := MYLIST_ENTRY_EDITED;
+
  //If we were already editing and not adding, no need to try editing again
   if (not EditMode) and (ProgramOptions.AutoEditExisting)
-  and (res.code = FILE_ALREADY_IN_MYLIST)
- //AniDB will complain if we EDIT and have no fields to set
-  and AfsSomethingIsSet(AnidbOptions.FileState) then begin
+  and (res.code = FILE_ALREADY_IN_MYLIST) then begin
     if ProgramOptions.Verbose then
       writeln(res.ToString);
     writeln('File in mylist, editing...');
