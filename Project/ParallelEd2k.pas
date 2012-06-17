@@ -59,6 +59,8 @@ type {Multithreaded hasher}
     function GetFreeWorker: integer;
     function GetFreeMemoryBlock: integer;
     procedure WaitAllWorkersFree;
+    function GetFreeWorkerCount: integer;
+    procedure WaitEvent;
 
   protected
     Parts: array of MD4Digest;
@@ -298,20 +300,35 @@ begin
   until false;
 end;
 
+//Calculates free worker count.
+//Call from the main thread only.
+//This might raise in multithreaded environment, but only main thread can make this number go down.
+function TParallelEd2kHasher.GetFreeWorkerCount: integer;
+var i: integer;
+begin
+  Result := 0;
+  for i := 0 to Length(Workers) - 1 do
+    if WorkerIdle[i] then
+      Inc(Result);
+end;
+
+//Sleeps until something happens (usually a thread signalling something)
+procedure TParallelEd2kHasher.WaitEvent;
+var hr: integer;
+begin
+  hr := WaitForSingleObject(FWakeUp, INFINITE);
+  if hr <> WAIT_OBJECT_0 then
+    RaiseLastOsError();
+end;
+
 { Waits until all workers become free }
+//Deprecated, don't use: there could be different reasons for waking up,
+//not only the worker being freed.
 procedure TParallelEd2kHasher.WaitAllWorkersFree;
-var i, hr, freecnt: integer;
 begin
   repeat
-    freecnt := 0;
-    for i := 0 to Length(Workers) - 1 do
-      if WorkerIdle[i] then
-        Inc(freecnt);
-    if freecnt>=Length(Workers) then exit;
-
-    hr := WaitForSingleObject(FWakeUp, INFINITE);
-    if hr <> WAIT_OBJECT_0 then
-      RaiseLastOsError();
+    if GetFreeWorkerCount>=Length(Workers) then exit;
+    WaitEvent;
   until false;
 end;
 
@@ -380,7 +397,7 @@ begin
   PartIndex := 0;
   LeadPartReported := false;
   repeat
-   { If we have calculated lead part, maybe it's time to report it }
+   { If we have calculated the lead part, maybe it's time to report it }
     if (not LeadPartReported) and PartsDone[0] then begin
       if Assigned(FOnLeadPartDone) then
         FOnLeadPartDone(Self, Parts[0]);
@@ -416,7 +433,20 @@ begin
   until (PartIndex >= Length(Parts)) or Terminated;
 
  { Wait for all workers to finish their jobs }
-  WaitAllWorkersFree;
+  repeat
+   { Lead part might be not done yet for small files }
+    if (not LeadPartReported) and PartsDone[0] then begin
+      if Assigned(FOnLeadPartDone) then
+        FOnLeadPartDone(Self, Parts[0]);
+      LeadPartReported := true;
+    end;
+
+   { All workers free: exit }
+    if GetFreeWorkerCount>=Length(Workers) then exit;
+
+   { Sleep }
+    WaitEvent;
+  until false;
 
  { Finalize hash }
   Lead := Parts[0];
