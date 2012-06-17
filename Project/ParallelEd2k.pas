@@ -442,7 +442,7 @@ begin
     end;
 
    { All workers free: exit }
-    if GetFreeWorkerCount>=Length(Workers) then exit;
+    if GetFreeWorkerCount>=Length(Workers) then break;
 
    { Sleep }
     WaitEvent;
