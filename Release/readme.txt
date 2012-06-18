@@ -56,6 +56,8 @@ Configuration flags are used to redefine/change settings:
 - /-updatecache disables all updates to the File Cache.
 - /ignoreunchangedfiles enables skipping Anidb requests for files which weren't changed. See "File Cache".
 - /-ignoreunchangedfiles or /forceunchangedfiles forces requests to Anidb even if the file state wasn't chagned since last time.
+- /savefailed <filename> saves a list of files which weren't recognized by AniDB or otherwise failed to be added, into a file. You can use this to auto-dump the failed files with avdump, for example.
+ If the path is relative, it's assumed to be relative to the program's folder.
 - /verbose enables printing additional information which isn't really needed but can be helpful when solving problems.
 - /-verbose suppresses verbose log.
 

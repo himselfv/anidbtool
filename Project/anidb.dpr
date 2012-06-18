@@ -7,7 +7,7 @@ program anidb;
 {$DEFINE THREADEDHASHER}
 
 uses
-  SysUtils, Classes, Windows, StrUtils, UniStrUtils, DirectoryEnum,
+  SysUtils, Classes, Windows, StrUtils, UniStrUtils, DirectoryEnum, FilenameUtils,
   AnidbConnection in 'AnidbConnection.pas',
   AnidbConsts in 'AnidbConsts.pas',
   FileInfo in 'FileInfo.pas',
@@ -32,6 +32,7 @@ type
     Verbose: boolean;
     IgnoreExtensions: string;
     UseOnlyExtensions: string;
+    SaveFailedList: string; //file name to save the list of failed files to.
     function AllowedExtension(ext: string): boolean;
   end;
   PProgramOptions = ^TProgramOptions;
@@ -624,6 +625,21 @@ begin
   end;
 end;
 
+procedure SaveListToFile(list: TStringArray; filename: string);
+var f: TStringList;
+  i: integer;
+begin
+ //Let's play stupid and reuse TStringList code
+  f := TStringList.Create;
+  try
+    for i := 0 to Length(list) - 1 do
+      f.Add(list[i]);
+    f.SaveToFile(filename);
+  finally
+    FreeAndNil(f);
+  end;
+end;
+
 function FileExt(fn: string): string;
 begin
   Result := ExtractFileExt(fn);
@@ -825,6 +841,20 @@ begin
       ProgramOptions.IgnoreUnchangedFiles := false;
     end else
 
+    if SameText(param, '/savefailed') then begin
+      Inc(i);
+      if i > ParamCount then begin
+        writeln('Incomlete /savefailed sequence.');
+        ShowUsage;
+        exit;
+      end;
+
+      ProgramOptions.SaveFailedList := DecodeStrParam(paramstr(i));
+      if IsRelativePath(PChar(ProgramOptions.SaveFailedList)) then
+        ProgramOptions.SaveFailedList := AppFolder + '\' + ProgramOptions.SaveFailedList;
+
+    end else
+
    //Verbose
     if SameText(param, '/verbose') then begin
       ProgramOptions.Verbose := true;
@@ -927,17 +957,23 @@ begin
       end;
     end;
 
-   //Output stats
-    writeln('Hashed files: '+IntToStr(Stats.HashedFiles));
-    writeln('Used cached hashe: '+IntToStr(Stats.HashCachedFiles));
-    writeln('Added files: '+IntToStr(Stats.AddedFiles));
-    writeln('Edited files: '+IntToStr(Stats.EditedFiles));
-    writeln('Ignored files: '+IntToStr(Stats.IgnoredFiles));
-    writeln('Unchanged files: '+IntToStr(Stats.UnchangedFiles));
-
    //If there were more than one file, output summary information
-    if Length(files) > 1 then
+    if Length(files) > 1 then begin
+     //Stats
+      writeln('Hashed files: '+IntToStr(Stats.HashedFiles));
+      writeln('Used cached hashe: '+IntToStr(Stats.HashCachedFiles));
+      writeln('Added files: '+IntToStr(Stats.AddedFiles));
+      writeln('Edited files: '+IntToStr(Stats.EditedFiles));
+      writeln('Ignored files: '+IntToStr(Stats.IgnoredFiles));
+      writeln('Unchanged files: '+IntToStr(Stats.UnchangedFiles));
+
+     //Failed files
       OutputSummary(failed_files);
+    end;
+
+   //Save failed file list
+    if ProgramOptions.SaveFailedList<>'' then
+      SaveListToFile(failed_files, ProgramOptions.SaveFailedList);
 
   end else
 
