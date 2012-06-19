@@ -222,4 +222,6 @@ Planned Features
 ===================
 - Ability to look into File Cache from the command-line
 - Ability to recognize command verb even if it's not the first parameter in the command line.
-- Send the password encrypted
+- Send the password encrypted (only possible when encrypting all data, not recommended by AniDB)
+- MYLIST GET
+- MYLIST ADD by Anime/Group/Episode scheme
