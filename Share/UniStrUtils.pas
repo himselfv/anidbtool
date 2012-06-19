@@ -476,7 +476,13 @@ type
 
 { Html encoding }
 
-function UrlEncode(s: UniString): AnsiString;
+type
+  TUrlEncodeOption = (
+    ueNoSpacePlus //Encode space as %20, not "+"
+  );
+  TUrlEncodeOptions = set of TUrlEncodeOption;
+
+function UrlEncode(s: UniString; options: TUrlEncodeOptions = []): AnsiString;
 function HtmlEscape(s: UniString): UniString;
 function HtmlEscapeObvious(s: UniString): UniString;
 function HtmlEscapeToAnsi(s: UniString): AnsiString;
@@ -2450,7 +2456,7 @@ end;
 
 //Кодирует строку в URI-форме: "(te)(su)(to) str" -> "%E3%83%86%E3%82%B9%E3%83%88+str"
 //Пока сделано медленно и просто, при необходимости можно ускорить
-function UrlEncode(s: UniString): AnsiString;
+function UrlEncode(s: UniString; options: TUrlEncodeOptions): AnsiString;
 var i, j: integer;
   U: UTF8String;
 begin
@@ -2460,7 +2466,10 @@ begin
       Result := Result + AnsiChar(s[i])
     else
     if s[i]=' ' then
-      Result := Result + '+'
+      if ueNoSpacePlus in options then
+        Result := Result + '%20'
+      else
+        Result := Result + '+'
     else begin
      //Вообще говоря, символ в UTF-16 может занимать несколько пар...
      //Но мы здесь это игнорируем.

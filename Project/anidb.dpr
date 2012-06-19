@@ -33,6 +33,7 @@ type
     IgnoreExtensions: string;
     UseOnlyExtensions: string;
     SaveFailedList: string; //file name to save the list of failed files to.
+    GenerateEd2kLinks: boolean;
     function AllowedExtension(ext: string): boolean;
   end;
   PProgramOptions = ^TProgramOptions;
@@ -72,27 +73,47 @@ var
 
 procedure ShowUsage;
 begin
-  writeln('Usage: '+paramstr(0) + ' <command> <params>');
+ { We only print the most important options here.
+  Some options are dependent on the program configuration }
+  writeln('Usage: '+ExtractFilename(paramstr(0)) + ' <command> <params>');
   writeln('Commands: ');
-  writeln('  hash <filename> [/s]');
-  writeln('  mylistadd <filename> [/s] [/state <state>] [/watched] [/edit] [/noerrors]');
-  writeln('   [/autoedit] [/source <source>] [/storage <storage>] [/other <other>]');
-  writeln('   [/watchdate <date>]');
+  writeln('  hash <filename> [/s] [/ed2k]');
+  writeln('  mylistadd <filename> [/s] [file state] [other flags]');
+  writeln('  mylistedit [see mylistadd]');
   writeln('  myliststats');
   writeln('');
   writeln('Where:');
   writeln('  <filename> is file name, mask or directory name');
   writeln('  /s iterates subdirectories');
+  writeln('');
+
+  writeln('File state flags:');
   writeln('  /state <state> sets file state (unknown/hdd/cd/deleted)');
   writeln('  /watched marks file as watched');
   writeln('  /watchdate sets the date you watched this episode/series');
   writeln('  /source <source> sets file source (any string)');
   writeln('  /storage <storage> sets file storage (any string)');
   writeln('  /other <other> sets other remarks (any string)');
-  writeln('  /edit forces edit mode');
-  writeln('  /noerrors allows to skip errors and continue adding files');
-  writeln('  /autoedit instructs to edit the file if it''s already in mylist');
-  writeln('  /verbose displays additional information');
+  writeln('If you''re editing a file, only those flags you specify will be changed.');
+  writeln('');
+
+  writeln('Other flags:');
+  if not ProgramOptions.AutoEditExisting then
+    writeln('  /autoedit tries to add file, if it''s in mylist then update it');
+  if ProgramOptions.DontStopOnErrors then
+    writeln('  /errors stops the app on critical errors')
+  else
+    writeln('  /noerrors ignores errors and continues adding files');
+  if ProgramOptions.UseCachedHashes then
+    writeln('  /forcerehash disables the use of cached hashes')
+  else
+    writeln('  /usecachedhashes enables the use of cached hashes');
+  if ProgramOptions.IgnoreUnchangedFiles then
+    writeln('  /forceunchangedfiles forces updates to AniDB even when file is not changed')
+  else
+    writeln('  /ignoreunchangedfiles skips AniDB request when file is not changed');
+  writeln('  /verbose displays more messages');
+  writeln('');
   writeln('See help file for other options.');
 end;
 
@@ -392,6 +413,10 @@ begin
   HashFile(fname, size, hash, f);
   writeln('Size: '+IntToStr(size));
   writeln('Hash: '+MD4ToString(hash));
+  if ProgramOptions.GenerateEd2kLinks then
+   //AniDB Ed2k link doesn't respect the "space as +" encoding part
+    writeln('ed2k://|file|'+string(UrlEncode(ExtractFilename(fname), [ueNoSpacePlus]))
+      +'|'+IntToStr(size)+'|'+MD4ToString(hash)+'|/');
 end;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -698,6 +723,10 @@ begin
     end else
 
    //Available switches
+    if SameText(param, '/?') then begin
+      ShowUsage;
+      exit;
+    end else
 
    //Subdirs
     if SameText(param, '/s') then
@@ -816,7 +845,8 @@ begin
     end else
 
    //Disable UseCachedHashes
-    if SameText(param, '/-usecachedhashes') then begin
+    if SameText(param, '/-usecachedhashes')
+    or SameText(param, '/forcerehash') then begin
       ProgramOptions.UseCachedHashes := false;
     end else
 
@@ -853,6 +883,16 @@ begin
       if IsRelativePath(PChar(ProgramOptions.SaveFailedList)) then
         ProgramOptions.SaveFailedList := AppFolder + '\' + ProgramOptions.SaveFailedList;
 
+    end else
+
+   //Ed2k links
+    if SameText(param, '/ed2k') then begin
+      ProgramOptions.GenerateEd2kLinks := true;
+    end else
+
+   //Disable Ed2k links
+    if SameText(param, '/-ed2k') then begin
+      ProgramOptions.GenerateEd2kLinks := false;
     end else
 
    //Verbose
@@ -909,7 +949,15 @@ begin
   end else
 
  //Mylistadd
-  if SameText(main_command, 'mylistadd') then begin
+  if SameText(main_command, 'mylistadd')
+  or SameText(main_command, 'mylistedit') then begin
+
+   //mylistedit === mylistadd + editmode
+    if SameText(main_command, 'mylistedit')
+   //except the case when AutoEdit because that's obviously meant for no editmode
+    and not ProgramOptions.AutoEditExisting then
+      AnidbOptions.EditMode := true;
+
    //If no files specified
     if filemask_cnt = 0 then begin
       writeln('No files specified.');

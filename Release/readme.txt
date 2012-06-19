@@ -19,49 +19,60 @@ Last-minute issues:
 
 Syntax
 ===================
-Usage: anidb <command> [configuration flags] <params>
+Usage: anidb <command> <params>
+
+General-purpose params:
+- <filename> stands for file or directory name or file mask (for example, K:\Anime\*.avi)
+- /s activates subdirectory parsing. With /s enabled (K:\Anime\*.avi) will enumerate all files with avi extension in K:\Anime and its subdirectories.
+
 
 Available commands:
-> hash <filename> [/s] [filename] [filename]...
-Hashes file and prints it's ed2k hash and file size in bytes.
+> hash [hashing params] [/s] <filename> [filename] [filename]...
+Hashes the file and prints its ed2k hash and file size in bytes.
 
-> mylistadd <filename> [operation flags] [/s] [filename] [filename]...
-Hashes file and adds it to anidb.
+Hashing flags:
+- /ed2k prints edonkey link to the file (ed2k://|file|Filename.avi|size|ed2k-hash|/)
 
 > myliststats
 Prints your AniDB stats (anime count, size, etc).
 
-Here:
-- <filename> stands for file or directory name or file mask (for example, K:\Anime\*.avi)
-- /s activates subdirectory parsing. With /s enabled (K:\Anime\*.avi) will enumerate all files with avi extension in K:\Anime and it's subdirectories.
+> mylistadd [operation flags] [file state flags] [/s] <filename> [filename] [filename]...
+Hashes the file and adds it to anidb. If the file was there and /autoedit is on, it's updated.
 
-Operation flags control the operation to perform on the files:
-- /state <state> marks every parsed file with this storage state. Available states: unknown, hdd, cd, deleted.
-- /watched marks every parsed file as watched.
+Operation flags control the operation to perform:
+- /edit forces editing: mylistadd+/edit=mylistedit
+- /-edit disables edit mode if it has been enabled through configuration file.
+- /autoedit makes the app first try to add the file, then if it's known, to update it.
+- /-autoedit disables /autoedit if it has been enabled through configuration file.
+- /ignoreunchangedfiles skips Anidb requests for files which weren't changed. See "File Cache".
+- /forceunchangedfiles or /-ignoreunchangedfiles forces updates to Anidb even if the file state wasn't chagned.
+
+File state flags:
+- /state <state> sets file state (unknown/hdd/cd/deleted)
+- /watched marks file as watched
 - /watchdate sets the date you watched this episode/series
 - /source <source> sets file source (any string)
 - /storage <storage> sets file storage (any string)
 - /other <other> sets other remarks (any string)
-- /edit[mode] activates edit mode. In edit mode files will me MYLIST EDIT-ed by default instead of being MYLIST ADD-ed. Read more in the configuration section.
-- /-edit[mode] disables edit mode if it have been enabled through configuration file.
+If you're editing a file, only those flags you specify will be changed. The rest will remain as they were.
 
-Configuration flags are used to redefine/change settings:
-- /noerrors forces application to continue with the next file even if a serious problem (such as a lack of internet connectivity) was encountered with this one.
+> mylistedit [same flags as mylistadd]
+Instead of adding the file, edits it on the anidb. If the file wasn't there, it's not added (although AniDB might report a success).
+
+
+General-purpose settings (apply to all commands where reasonable):
+- /noerrors forces application to continue to the next file even if a serious problem was encountered (such as a lack of internet connectivity).
 - /errors or /-noerrors disables /noerrors if it have been enabled through configuration file.
-- /autoedit[existing] instructs anidb tool to automatically retry the operation in edit mode if MYLIST ADD request returned 310 FILE ALREADY IN MYLIST. Works only when edit mode is disabled.
-- /-autoedit[existing] disables /autoeditexisting if it have been enabled through configuration file.
-- /usecachedhashes enables the use of partial hashing scheme as described in the File Cache section of this documentation
-- /-usecachedhashes disables the use of partial hashing scheme
-- /updatecache enables updates to the File Cache.
-- /-updatecache disables all updates to the File Cache.
-- /ignoreunchangedfiles enables skipping Anidb requests for files which weren't changed. See "File Cache".
-- /-ignoreunchangedfiles or /forceunchangedfiles forces requests to Anidb even if the file state wasn't chagned since last time.
-- /savefailed <filename> saves a list of files which weren't recognized by AniDB or otherwise failed to be added, into a file. You can use this to auto-dump the failed files with avdump, for example.
+- /usecachedhashes enables the use of quick hashing as described in the "File Cache" section of this document.
+- /forcerehash or /-usecachedhashes forces full rehashing of everything
+- /updatecache saves new data (hashes, file state) to the cache.
+- /-updatecache makes the cache read-only.
+- /savefailed <filename> saves a list of files which weren't recognized by AniDB or otherwise failed to be added or edited, into a file. See "Multiple files".
  If the path is relative, it's assumed to be relative to the program's folder.
 - /verbose enables printing additional information which isn't really needed but can be helpful when solving problems.
 - /-verbose suppresses verbose log.
 
-If you're editing a file, only those flags you specify will be changed. The rest will remain as they were.
+
 
 
 Configuration
@@ -76,20 +87,19 @@ Pass: Your AniDB account password. Username/password information is sent to AniD
 Timeout: Time in milliseconds the application will wait for answer from AniDB server. If no answer comes in this interval, request will be considered failed.
 RetryCount: Number of times the utility will try to re-query the anidb without getting an answer. Each time it'll wait for Timeout milliseconds before considering request failed.
 
-EditMode: Enables issuing MYLIST EDIT instead of MYLIST ADD for all files by default. Can be disabled with /-editmode from command-line.
+EditMode: Enables using MYLIST EDIT instead of MYLIST ADD for all files by default. Can be disabled with /-edit[mode] from command-line.
 AutoEditExisting: Enables sending MYLIST EDIT after each MYLIST ADD which returns FILE ALREADY IN MYLIST. Can be disabled with /-autoedit from command-line.
 
-DontStopOnErrors: Specifies whether the application should stop when it encounters serious and probably non-recoverable error (such as a loss of internet connectivity or ban on anidb). Sometimes it's useful to force application to continue, for example, if you're adding a whole bunch (say, 1000) of files and do not want to retry the whole process AND you're sure any possible loss of connectivity should not last long. In this case anidb tool will add most of the files on the fly and present a list of files which weren't added for you to add them manually.
-That's still better than when your connection drops dead in the middle of hashing 1000+ files and anidb tool encounters a critical error, dropping the whole task. With DontStopOneErrors disabled you'll either have to re-hash all the 1000+ files or to select the remaining say 500+ files for hashing manually.
-Can be disabled with /-noerrors from command-line.
+DontStopOnErrors: Specifies whether the application should stop when it encounters a critical error (such as a loss of connectivity or ban on anidb).
+If you're adding a bunch of files at once you might want to try to continue, hoping that the problems are temporary. In this case the app will present a list of failed files at the end.
 
-UseCachedHashes: controls the use of partial hashing scheme as described in the File Cache section of this documentation
+UseCachedHashes: controls the use of quick hashing. See "File Cache".
 
-UpdateCache: enables/disables updates to the File Cache. Enabling updates does not imply forcing them: if the update is unnecessary, File Cache will not be written to, thus minimizing the chance of screwing something up and destroying the cache. Not like it's a big loss, of course. Disabling updates effectively means making the File Cache read-only. This includes partial hash updates and file state updates.
+UpdateCache: enables/disables updates (partial hashes, file state) to the cache. Disabling updates makes the cache read-only.
 
-IgnoreUnchangedFiles: controls suppressing Anidb requests for files which weren't changed. See "File Cache".
+IgnoreUnchangedFiles: suppresses Anidb requests for files which weren't changed. See "File Cache".
 
-Verbose: controls printing additional information which isn't really needed but can be helpful when solving problems. If disabled, the tool will not print verbose data, although will keep printing important messages.
+Verbose: print verbose information / only important messages.
 
 IgnoreExtensions: allows you to set the extensions which you want anidb tool to ignore when adding files to anidb. These restrictions will apply to MYLIST ADD/MYLIST EDITS commands but not to HASH command though.
 Extensions to ignore are separated by comma. Do not use whitespaces after commas, they'll be treated like they're parts of extensions. Wildcards are not allowed. Empty extension is written as ".".
@@ -101,58 +111,77 @@ Good examples:
   IgnoreExtensions=. //ignores empty extension
   IgnoreExtensions=txt,pdf,.,nfo
 Bad examples:
-  IgnoreExtensions=ass, mp3, sfv, nfo //ignores ". mp3" instead of ".mp3"
-  IgnoreExtensions=txt, //works, but still wrong
+  IgnoreExtensions=ass, mp3, sfv, nfo//ignores ". mp3" instead of ".mp3"
+  IgnoreExtensions=txt,//works, but still wrong
  
 UseOnlyExtensions: if set, limits the extensions allowed to only those specified in this list. The format is the same as for the IgnoreExtensions parameter. Empty string means allowing every extension except those ignored explicilty through IgnoreExtensions.
 
 
 Session information
 ====================
-Session information is stored in "session.cfg". This file is not required, you can delete it and it'll be recreated automatically on the next application run. However, session information will be lost and the application will automatically re-logon to AniDB.
+TLDR: Delete "session.cfg" if there are problems.
+
+Session information is stored in "session.cfg". This file is not required, you can delete it and it'll be recreated automatically. However, session information will be lost and the application will automatically re-login to AniDB.
 In fact, it might be useful to try delete this file if you encounter problems with AniDB.
 
 
 How to use
 ===================
-First, configure the application according to the "Configuration" section. Basically, you'll only need to specify your username and password.
-Now verify that everything is working properly. Choose any file known to AniDB (some anime episode, for example) and run "anidb mylistadd <filename>" from the command line. If evernything is fine, the file will be hashed and added to your mylist. Check that the answer from server is "mylist entry added", "mylist entry edited" or at least "already in mylist".
-Like this, you can use the tool from the command-line.
+TLDR: Edit "anidb.cfg" to set your password. Create links to "Add to Mylist" in SendTo folder.
 
-You can also configure your system to use this tool from Explorer. There's a batch file called "Add to Anidb.cmd" in the distribution packet. Create a shortcut to this file in your profile's SendTo folder. Now you can right-click any file, directory or a bunch of files, choose "SendTo> Add to Anidb", and these files or all files from the selected directory and it's subdirectories will be added to your mylist.
-You can customize the batch file to change command-line params.
+First configure the application according to the "Configuration" section. Usually you'll only need to specify your username and password.
+Verify that everything is working properly. Choose any file known to AniDB (some anime episode, for example) and run "anidb mylistadd <filename>" from the command line. If evernything is fine, the file will be hashed and added to your mylist. Check that the answer from server is "mylist entry added", "mylist entry edited" or "already in mylist".
+
+You can also configure your system to use this tool from Explorer. There are batch files called "Add to Anidb (HDD).cmd" etc in the distribution packet. Create shortcuts to these in your profile's SendTo folder. Now you can right-click any file, directory or a bunch of files, choose "SendTo > Add to Anidb (HDD)" and they will be added to your mylist.
+You can customize the batch files to change command-line params.
 
 
 Multiple files
 ===================
-Using andib's mask functionality you can make anidb parse multiple files at once. For example,
+You can make anidb parse multiple files at once. For example,
 > anidb mylistadd "K:\Anime\*.*" /S
-will make the utility parse every single file under \Anime folder and it's subfolders. 
+will parse every single file under \Anime folder and it's subfolders. 
 
 In cases where there are multiple files to parse, Anidb parses them all and does not stop on non-critical errors (i.e. on errors related to anidb, such as "FILE NOT FOUND"). Instead, the utility records all the errors and displays a summary at the end.
 > Some files failed:
->   K:\Anime\Gundam Seed\Gundam Seed The Unknown Series 01.avi
->   K:\Anime\Gundam Seed\Gundam Seed The Unknown Series 02.avi
+>   Gundam Seed The Unknown Series 01.avi
+>   Gundam Seed The Unknown Series 02.avi
 > ...
 
-You can scroll command window up to determine the causes of errors.
+Scroll the command window up to determine the causes of errors.
+
+You can save the list of failed files to a file:
+> anidb mylistadd /failedlist "c:\temp\failed.txt" ...
+Failed.txt will contain the list of full paths:
+> K:\Anime\Gundam Seed\Gundam Seed The Unknown Series 01.avi
+> K:\Anime\Gundam Seed\Gundam Seed The Unknown Series 02.avi
+> ...
+This way you can later feed it to other tools, such as hash checker or avdump:
+> for /F "delims=" %i IN (c:\temp\failed.txt) DO anidb hash /ed2k "%i" >>links.txt
+(generates ed2k links for all failed files: use the links to register the files in anidb)
+> for /F "delims=" %i IN (c:\temp\failed.txt) DO avdump -ac:username:password "%i"
+(feeds all files to avdump to automatically add their data to anidb. You'll still need to register the files. Read more on avdump: http://wiki.anidb.net/w/Avdump)
+
 
 
 Editing versus adding
 ========================
-By default, with EditMode and AutoEditExisting disabled, anidb tool will issue a MYLIST ADD command for every file it parses. This command adds a file to MYLIST only if it wasn't there before. If the file have already been registered before, then the request will fail with error 310 FILE ALREADY IN MYLIST and file data will not be changed.
-Anidb tool considers this to be a successful result because in most cases this is what one wants. If you just want to register all your files in anidb, then certainly knowing that the file is already registered should be enough for you.
+TLDR: Leave everything as is for the best behaviour.
 
-If, on the other hand, you want to change the file data, for example, to mark the file as watched, you'll need to issue a MYLIST EDIT request. For that, specify /edit in the command-line or set EditMode in the configuration file to True. According to documentation, MYLIST EDIT changes the data if the file is already in MYLIST or adds the file if it wasn't there yet.
+By default mylistadd command issues a MYLIST ADD request, and then a MYLIST EDIT request if the file was already in MyList. This is usually what you want, since this way new files will be added and existing files updated.
 
-Naturally, you might want to always MYLIST EDIT files instead of MYLIST ADDing them, because that way you transparently update those files you have already added before. But there's a trick. Documentation lies: in fact MYLIST EDIT does not add new files, although it certainly reports them as "MYLIST ENTRY EDITED". In other words, with /edit enabled you will only edit those files you have already added and will not add those you haven't added yet. What's worse, you won't even know which files were successfully edited, and which were ignored because they weren't in MYLIST: they will all just return "MYLIST ENTRY EDITED".
+What's more, if you're using cache and the file wasn't changed, no requests will be issued at all.
 
-The solution is to use /autoedit or set AutoEditExisting in the configuration file to True. In this case anidb tool will first issue a MYLIST ADD request for every file, and if it returns "FILE ALREADY IN MYLIST", another request to MYLIST EDIT the file will be issued. This, of course, comes with a cost of having additional two second wait for every file you re-send to anidb.
+When not using cache, you might want to minimize the number of requests since each one takes 2 seconds.
+- Disable EditMode AND AutoEditExisting to only issue MYLIST ADD requests. If the file is already in your MyList, it will not be updated with the params you set in the command line.
+- Disable AutoEditExisting to only issue MYLIST EDIT requests. This way only files already in your MyList will be updated, and files not yet in your MyList will be skipped (although AniDB will report them as MYLIST ENTRY EDITED too)
 
 
 File Cache
 ===================
-Anidb tool supports File Cache. This feature drastically reduces the number of requests to Anidb and the time spent in hashing if you rehash the files you've hased already. With File Cache enabled, for files you've already hashed and whose state weren't changed since that time, Anidb tool will only hash the first chunk (~10Mb) of the file and will not issue any requests to Anidb.
+TLDR: Known files are rehashed fast and ignored. If something fails, delete "file.db".
+
+Anidb tool supports File Cache. This feature drastically reduces the number of requests to Anidb and the time spent in hashing if you rehash the files you've hased already. With File Cache enabled, Anidb tool will only hash the first chunk (~10Mb) of the file and will not issue any requests to Anidb for files you've already hashed before.
 
 More specifically, the partial hashing scheme works by hashing only the first chunk of the file (this is called the Lead Hash) and then looking in the File Cache for files with the same Lead Hash. If such files are found, their complete hash is taken from the File Cache instead of recalculating it from the scratch.
 
@@ -171,7 +200,7 @@ The File Cache is kept in "file.db" in the program folder; it's format is undocu
 
 About renaming
 ===================
-You can rename files as much as you want. Anidb tool identifies files by their hashes, that is, basically, by their contents. As long as the contents remains unchanged, no mattter which name you give to your file, Anidb tool will still know this is the same file as before.
+You can rename files as much as you want. Anidb tool identifies files by their hashes, that is by their contents. As long as the contents remains unchanged, no mattter which name you give to your file, Anidb tool will still know it's the same file as before.
 
 
 
@@ -192,5 +221,5 @@ Version Info
 Planned Features
 ===================
 - Ability to look into File Cache from the command-line
-- Mylistedit instead of editmode
 - Ability to recognize command verb even if it's not the first parameter in the command line.
+- Send the password encrypted
