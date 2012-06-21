@@ -77,7 +77,7 @@ begin
   Some options are dependent on the program configuration }
   writeln('Usage: '+ExtractFilename(paramstr(0)) + ' <command> <params>');
   writeln('Commands: ');
-  writeln('  hash <filename> [/s] [/ed2k]');
+  writeln('  hash <filename> [/s] [/ed2klink]');
   writeln('  mylistadd <filename> [/s] [file state] [other flags]');
   writeln('  mylistedit [see mylistadd]');
   writeln('  myliststats');
@@ -886,12 +886,12 @@ begin
     end else
 
    //Ed2k links
-    if SameText(param, '/ed2k') then begin
+    if SameText(param, '/ed2klink') then begin
       ProgramOptions.GenerateEd2kLinks := true;
     end else
 
    //Disable Ed2k links
-    if SameText(param, '/-ed2k') then begin
+    if SameText(param, '/-ed2klink') then begin
       ProgramOptions.GenerateEd2kLinks := false;
     end else
 

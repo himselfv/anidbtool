@@ -7,7 +7,7 @@ Features
 ===================
 - Minimal number of requests to anidb (basically, 1 UDP packet per file, login information is preserved between application runs)
 - Strict compliance with AniDB UDP API short-term messaging timeout rules. No message is sent in less than two seconds after the previous one. Even if you restart the application.
-- Hash and file caches (no requests and rehashings for files you've added already). 
+- Hash and state caching (no requests and rehashings for files you've added already). 
 - Kind of optimized for multithreading (there's only so much you can do with AniDB timeouts though). 
 
 
@@ -22,86 +22,91 @@ Syntax
 Usage: anidb <command> <params>
 
 General-purpose params:
-- <filename> stands for file or directory name or file mask (for example, K:\Anime\*.avi)
-- /s activates subdirectory parsing. With /s enabled (K:\Anime\*.avi) will enumerate all files with avi extension in K:\Anime and its subdirectories.
+  <filename> 		file or directory name or file mask (for example, K:\Anime\*.avi)
+  /s			parse subdirectories. With /s enabled (K:\Anime\*.avi) will enumerate all files with avi extension in K:\Anime and its subdirectories.
 
 
 Available commands:
 > hash [hashing params] [/s] <filename> [filename] [filename]...
-Hashes the file and prints its ed2k hash and file size in bytes.
+Hash the file and print its ed2k hash and file size in bytes.
 
 Hashing flags:
-- /ed2k prints edonkey link to the file (ed2k://|file|Filename.avi|size|ed2k-hash|/)
+  /ed2klink		print edonkey links (ed2k://|file|Filename.avi|size|ed2k-hash|/)
 
 > myliststats
-Prints your AniDB stats (anime count, size, etc).
+Output your AniDB stats (anime count, size, etc).
 
 > mylistadd [operation flags] [file state flags] [/s] <filename> [filename] [filename]...
-Hashes the file and adds it to anidb. If the file was there and /autoedit is on, it's updated.
+Hash the file and add it to anidb. If the file was there and /autoedit is on, it will be updated.
 
 Operation flags control the operation to perform:
-- /edit forces editing: mylistadd+/edit=mylistedit
-- /-edit disables edit mode if it has been enabled through configuration file.
-- /autoedit makes the app first try to add the file, then if it's known, to update it.
-- /-autoedit disables /autoedit if it has been enabled through configuration file.
-- /ignoreunchangedfiles skips Anidb requests for files which weren't changed. See "File Cache".
-- /forceunchangedfiles or /-ignoreunchangedfiles forces updates to Anidb even if the file state wasn't chagned.
+  /edit			force editing: mylistadd+/edit=mylistedit
+  /-edit		disable edit mode if it has been enabled by configuration file
+  /autoedit		first try to add the file, then if it's known, to update it
+  /-autoedit		disable /autoedit if it has been enabled by configuration file
+  /ignoreunchangedfiles
+			skip Anidb requests for files which weren't changed (see "File Cache")
+  /forceunchangedfiles,
+  /-ignoreunchangedfiles
+			force updates to Anidb even if the file state wasn't chagned
 
 File state flags:
-- /state <state> sets file state (unknown/hdd/cd/deleted)
-- /watched marks file as watched
-- /watchdate sets the date you watched this episode/series
-- /source <source> sets file source (any string)
-- /storage <storage> sets file storage (any string)
-- /other <other> sets other remarks (any string)
+  /state <state>	sets file state (unknown/hdd/cd/deleted)
+  /watched		marks file as watched
+  /watchdate		sets the date you watched this episode/series
+  /source <source>	sets file source (any string)
+  /storage <storage>	sets file storage (any string)
+  /other <other>	sets other remarks (any string)
 If you're editing a file, only those flags you specify will be changed. The rest will remain as they were.
 
 > mylistedit [same flags as mylistadd]
-Instead of adding the file, edits it on the anidb. If the file wasn't there, it's not added (although AniDB might report a success).
+Instead of adding the file, edit it on the anidb. If the file wasn't there, it will not be added (although AniDB might report a success).
 
 
 General-purpose settings (apply to all commands where reasonable):
-- /noerrors forces application to continue to the next file even if a serious problem was encountered (such as a lack of internet connectivity).
-- /errors or /-noerrors disables /noerrors if it have been enabled through configuration file.
-- /usecachedhashes enables the use of quick hashing as described in the "File Cache" section of this document.
-- /forcerehash or /-usecachedhashes forces full rehashing of everything
-- /updatecache saves new data (hashes, file state) to the cache.
-- /-updatecache makes the cache read-only.
-- /savefailed <filename> saves a list of files which weren't recognized by AniDB or otherwise failed to be added or edited, into a file. See "Multiple files".
- If the path is relative, it's assumed to be relative to the program's folder.
-- /verbose enables printing additional information which isn't really needed but can be helpful when solving problems.
-- /-verbose suppresses verbose log.
+  /noerrors		continue to the next file even if a serious problem was encountered (such as a lack of internet connectivity)
+  /errors,
+  /-noerrors		disable /noerrors if it has been enabled by configuration file
+  /usecachedhashes	use quick hashing (see "File Cache")
+  /forcerehash,
+  /-usecachedhashes	force full rehashing of everything
+  /updatecache		save new data (hashes, file state) to the cache
+  /-updatecache		make the cache read-only
+  /savefailed <filename>
+			save a list of files which weren't recognized by AniDB or otherwise failed to be added or edited, into a file (see "Multiple files")
+  /verbose		print additional info about what the tool is doing
+  /-verbose		suppresses /verbose
 
 
 
 
 Configuration
 ===================
-Configuration is stored in "anidb.cfg" (or, more specifically, in %appname%.cfg, so if you rename anidb.exe to MYCRAZYAPP.exe, it'll look for configuration in MYCRAZYAPP.cfg).
+Program settings are stored in "anidb.cfg" (or, more specifically, in %appname%.cfg, so if you rename anidb.exe to MYCRAZYAPP.exe, it'll look for configuration in MYCRAZYAPP.cfg).
 
 Available parameters:
-Host: AniDB API server name or IPv4 address. Use default (api.anidb.info)
-Port: AniDB API server port. Use default (9000)
-User: Your AniDB account username
-Pass: Your AniDB account password. Username/password information is sent to AniDB server in plaintext, if this is unacceptable for you - don't use the application until this behaviour changes.
+  Host: AniDB API server name or IPv4 address. Use default (api.anidb.info)
+  Port: AniDB API server port. Use default (9000)
+  User: Your AniDB account username
+  Pass: Your AniDB account password. Username/password information is sent to AniDB server in plaintext, if this is unacceptable for you - don't use the application until this behaviour changes.
 Timeout: Time in milliseconds the application will wait for answer from AniDB server. If no answer comes in this interval, request will be considered failed.
 RetryCount: Number of times the utility will try to re-query the anidb without getting an answer. Each time it'll wait for Timeout milliseconds before considering request failed.
 
-EditMode: Enables using MYLIST EDIT instead of MYLIST ADD for all files by default. Can be disabled with /-edit[mode] from command-line.
+  EditMode: Enables using MYLIST EDIT instead of MYLIST ADD for all files by default. Can be disabled with /-edit[mode] from command-line.
 AutoEditExisting: Enables sending MYLIST EDIT after each MYLIST ADD which returns FILE ALREADY IN MYLIST. Can be disabled with /-autoedit from command-line.
 
-DontStopOnErrors: Specifies whether the application should stop when it encounters a critical error (such as a loss of connectivity or ban on anidb).
+  DontStopOnErrors: Specifies whether the application should stop when it encounters a critical error (such as a loss of connectivity or ban on anidb).
 If you're adding a bunch of files at once you might want to try to continue, hoping that the problems are temporary. In this case the app will present a list of failed files at the end.
 
-UseCachedHashes: controls the use of quick hashing. See "File Cache".
+  UseCachedHashes: controls the use of quick hashing. See "File Cache".
 
-UpdateCache: enables/disables updates (partial hashes, file state) to the cache. Disabling updates makes the cache read-only.
+  UpdateCache: enables/disables updates (partial hashes, file state) to the cache. Disabling updates makes the cache read-only.
 
-IgnoreUnchangedFiles: suppresses Anidb requests for files which weren't changed. See "File Cache".
+  IgnoreUnchangedFiles: suppresses Anidb requests for files which weren't changed. See "File Cache".
 
-Verbose: print verbose information / only important messages.
+  Verbose: print verbose information / only important messages.
 
-IgnoreExtensions: allows you to set the extensions which you want anidb tool to ignore when adding files to anidb. These restrictions will apply to MYLIST ADD/MYLIST EDITS commands but not to HASH command though.
+  IgnoreExtensions: allows you to set the extensions which you want anidb tool to ignore when adding files to anidb. These restrictions will apply to MYLIST ADD/MYLIST EDITS commands but not to HASH command though.
 Extensions to ignore are separated by comma. Do not use whitespaces after commas, they'll be treated like they're parts of extensions. Wildcards are not allowed. Empty extension is written as ".".
 Good examples:
   IgnoreExtensions=ass,mp3,sfv,nfo
@@ -114,7 +119,7 @@ Bad examples:
   IgnoreExtensions=ass, mp3, sfv, nfo//ignores ". mp3" instead of ".mp3"
   IgnoreExtensions=txt,//works, but still wrong
  
-UseOnlyExtensions: if set, limits the extensions allowed to only those specified in this list. The format is the same as for the IgnoreExtensions parameter. Empty string means allowing every extension except those ignored explicilty through IgnoreExtensions.
+  UseOnlyExtensions: if set, limits the extensions allowed to only those specified in this list. The format is the same as for the IgnoreExtensions parameter. Empty string means allowing every extension except those ignored explicilty through IgnoreExtensions.
 
 
 Session information
@@ -152,6 +157,8 @@ Scroll the command window up to determine the causes of errors.
 
 You can save the list of failed files to a file:
 > anidb mylistadd /failedlist "c:\temp\failed.txt" ...
+If the path is relative, it's assumed to be relative to the program's folder.
+
 Failed.txt will contain the list of full paths:
 > K:\Anime\Gundam Seed\Gundam Seed The Unknown Series 01.avi
 > K:\Anime\Gundam Seed\Gundam Seed The Unknown Series 02.avi
@@ -168,7 +175,7 @@ Editing versus adding
 ========================
 TLDR: Leave everything as is for the best behaviour.
 
-By default mylistadd command issues a MYLIST ADD request, and then a MYLIST EDIT request if the file was already in MyList. This is usually what you want, since this way new files will be added and existing files updated.
+When configure by default, mylistadd command issues a MYLIST ADD request, and then a MYLIST EDIT request if the file was already in MyList. This is usually what you want, since this way new files will be added and existing files updated.
 
 What's more, if you're using cache and the file wasn't changed, no requests will be issued at all.
 
@@ -181,7 +188,7 @@ File Cache
 ===================
 TLDR: Known files are rehashed fast and ignored. If something fails, delete "file.db".
 
-Anidb tool supports File Cache. This feature drastically reduces the number of requests to Anidb and the time spent in hashing if you rehash the files you've hased already. With File Cache enabled, Anidb tool will only hash the first chunk (~10Mb) of the file and will not issue any requests to Anidb for files you've already hashed before.
+Anidb tool supports hash/file state caching. This feature dramatically reduces the number of requests to Anidb and the time needed to rehash files you've hashed already. With File Cache enabled, Anidb tool will only hash the first chunk (~10Mb) of the file and will not issue any requests to Anidb for files you've already hashed before.
 
 More specifically, the partial hashing scheme works by hashing only the first chunk of the file (this is called the Lead Hash) and then looking in the File Cache for files with the same Lead Hash. If such files are found, their complete hash is taken from the File Cache instead of recalculating it from the scratch.
 
