@@ -1479,8 +1479,8 @@ end;
 function GetRandomFilename(APrefix, AExtension: string; AMethod: TNameGenMethod = [ngmHexadec]): string;
 begin
   Result := APrefix;
-  if (ngmCurDate in AMethod) then Result := Result + '_' + ReplaceText(DateToStr(now), DateSeparator, '');
-  if (ngmCurTime in AMethod) then Result := Result + '_' + ReplaceText(TimeToStr(now), TimeSeparator, '');
+  if (ngmCurDate in AMethod) then Result := Result + '_' + ReplaceText(DateToStr(now), FormatSettings.DateSeparator, '');
+  if (ngmCurTime in AMethod) then Result := Result + '_' + ReplaceText(TimeToStr(now), FormatSettings.TimeSeparator, '');
   if (ngmHexadec in AMethod) then Result := Result + '_' + IntToHex(Random($FFFFFF), 6);
   Result := Result + '.' + AExtension;
 end;
