@@ -10,3 +10,8 @@ syntax:glob
 # Binaries
 *.exe
 *.dll
+
+# At this point we ignore secondary project files (not enough complexity to keep these)
+*.cfg
+*.res
+*.dproj
