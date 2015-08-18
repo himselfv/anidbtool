@@ -1,0 +1,12 @@
+syntax:glob
+*.~*
+~history
+*.dcu
+*.map
+*.drc
+*.dproj.local
+*.identcache
+
+# Binaries
+*.exe
+*.dll
